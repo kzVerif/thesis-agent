@@ -75,6 +75,10 @@ func parseStreamCommand(data []byte) streamCommand {
 	}
 
 	typeValue := normalizeCommand(message.Type)
+	// Power is a one-shot command and must never trigger stream aliases or kills.
+	if typeValue == "power" {
+		return streamCommand{}
+	}
 	action := normalizeCommand(message.Action)
 	command := normalizeCommand(message.Command)
 	for _, value := range []string{action, command, typeValue} {

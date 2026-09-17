@@ -24,6 +24,7 @@ func main() {
 		cfg.PerformanceInterval,
 		cfg.PingTimeout,
 	)
+	wsClient.ConfigurePower(service.MockPowerController{})
 	info := service.GetSystemInfo()
 	if err := wsClient.ConfigureDownloads(download.Config{Directory: cfg.DownloadDirectory, MaxConcurrent: cfg.MaxConcurrentDownloads, QueueSize: cfg.DownloadQueueSize, MaxFileSize: cfg.MaxDownloadSize, AllowHTTP: cfg.AllowLocalHTTPDownloads}, info.ID); err != nil {
 		log.Fatal(err)
