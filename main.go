@@ -27,10 +27,13 @@ func main() {
 		cfg.PingTimeout,
 	)
 
-	// Safe default: without POWER_MODE=real the Agent always stays in mock mode.
-	var powerController client.PowerController = service.MockPowerController{}
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("POWER_MODE")), "real") {
-		powerController = &service.WindowsPowerController{Delay: 3 * time.Second}
+	// Default to real power control. Set POWER_MODE=mock for safe testing.
+	var powerController client.PowerController = &service.WindowsPowerController{
+		Delay: 3 * time.Second,
+	}
+
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("POWER_MODE")), "mock") {
+		powerController = service.MockPowerController{}
 	}
 	wsClient.ConfigurePower(powerController)
 	log.Printf("power controller mode: %s", powerController.Mode())
