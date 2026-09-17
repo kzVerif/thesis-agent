@@ -25,6 +25,8 @@ type fakePowerController struct {
 	called chan struct{}
 }
 
+func (f *fakePowerController) Mode() string { return "mock" }
+
 func (f *fakePowerController) Shutdown(context.Context) error {
 	f.calls.Add(1)
 	if f.called != nil {

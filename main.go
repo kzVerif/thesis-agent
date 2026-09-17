@@ -5,7 +5,9 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
 
 	"ws-agent/client"
 	"ws-agent/config"
@@ -24,7 +26,15 @@ func main() {
 		cfg.PerformanceInterval,
 		cfg.PingTimeout,
 	)
-	wsClient.ConfigurePower(service.MockPowerController{})
+
+	// Safe default: without POWER_MODE=real the Agent always stays in mock mode.
+	var powerController client.PowerController = service.MockPowerController{}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("POWER_MODE")), "real") {
+		powerController = &service.WindowsPowerController{Delay: 3 * time.Second}
+	}
+	wsClient.ConfigurePower(powerController)
+	log.Printf("power controller mode: %s", powerController.Mode())
+
 	info := service.GetSystemInfo()
 	if err := wsClient.ConfigureDownloads(download.Config{Directory: cfg.DownloadDirectory, MaxConcurrent: cfg.MaxConcurrentDownloads, QueueSize: cfg.DownloadQueueSize, MaxFileSize: cfg.MaxDownloadSize, AllowHTTP: cfg.AllowLocalHTTPDownloads}, info.ID); err != nil {
 		log.Fatal(err)

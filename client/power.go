@@ -8,9 +8,11 @@ import (
 	"github.com/google/uuid"
 )
 
-// PowerController accepts a shutdown request. Phase 1 wires only a mock.
+// PowerController accepts a shutdown request and reports the active execution mode.
+// Phase 2 supports both mock and real implementations without changing the wire shape.
 type PowerController interface {
 	Shutdown(context.Context) error
+	Mode() string
 }
 
 // ConfigurePower must be called before Run, like ConfigureDownloads.
@@ -49,6 +51,17 @@ func parsePowerCommand(data []byte) (powerCommand, bool) {
 	return powerCommand{RequestID: message.RequestID}, true
 }
 
+func powerMode(controller PowerController) string {
+	if controller == nil {
+		// Preserve the existing failure envelope so the server can consume it.
+		return "mock"
+	}
+	if controller.Mode() == "real" {
+		return "real"
+	}
+	return "mock"
+}
+
 func (c *Client) handlePowerCommand(ctx context.Context, conn *safeConnection, command powerCommand) {
 	if ctx.Err() != nil {
 		return
@@ -57,7 +70,7 @@ func (c *Client) handlePowerCommand(ctx context.Context, conn *safeConnection, c
 		Type:      "power",
 		Action:    "shutdown_result",
 		RequestID: command.RequestID,
-		Mode:      "mock",
+		Mode:      powerMode(c.powerController),
 	}
 	switch {
 	case c.powerController == nil:
