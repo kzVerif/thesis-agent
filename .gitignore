@@ -1,2 +1,4 @@
 .tmp-go-cache
 download
+.env
+/download
