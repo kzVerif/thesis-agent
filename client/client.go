@@ -23,6 +23,7 @@ type Client struct {
 	connection          *safeConnection
 	pendingResults      chan any
 	scanManager         *antivirus.Manager
+	powerController     PowerController
 }
 
 type MessageProvider func() (any, error)
@@ -173,6 +174,10 @@ func (c *Client) runConnection(
 	}
 	if err := readJSONMessages(runCtx, conn, func(data []byte) {
 		if c.handleVirusScan(ctx, data) {
+			return
+		}
+		if command, ok := parsePowerCommand(data); ok {
+			go c.handlePowerCommand(runCtx, conn, command)
 			return
 		}
 		if c.downloadManager == nil {

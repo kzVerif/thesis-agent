@@ -1,6 +1,8 @@
 
 เอกสารรับคำสั่งสแกนไวรัส quick / custom / full และส่งผลผ่าน WebSocket: [docs/virus-scan.md](docs/virus-scan.md)
 
+เอกสาร Power / Mock Shutdown และ Phase 1 Agent Handoff: [docs/power-shutdown.md](docs/power-shutdown.md)
+
 • จัดโครงสร้างไฟล์ใหม่ทั้งระบบเรียบร้อยแล้ว เพื่อแยกหน้าที่และพัฒนาต่อได้ง่ายขึ้น:
 
   ws-agent/
