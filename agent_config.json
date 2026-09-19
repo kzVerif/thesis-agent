@@ -1,3 +1,6 @@
 {
-  "agent_id": "86dbfbcc-a13c-4ffc-adab-7187018273e0"
+  "agent_id": "86dbfbcc-a13c-4ffc-adab-7187018273e0",
+  "algorithm": "Ed25519",
+  "public_key": "3MLeXexJ5x0hOHwjlWOmFPXuqiiWVnsvQEQhcPbr7rM=",
+  "encrypted_private_key": "AQAAANCMnd8BFdERjHoAwE/Cl+sBAAAAQMtpgPUZ9kaL9L95Fb3BbQAAAAACAAAAAAAQZgAAAAEAACAAAABuZhcpuDri6tw5gNaRUug/PcjhV/Xou9fboxr/EZ4DcAAAAAAOgAAAAAIAACAAAACfeQt0jbtVtzPxyoYdtJm4ciMN003JEOK235g4haOlv1AAAAB8Y2g9hP+YCdWG1UyZ4m1PFYraBTWhRFFuA5bh2LHXy98QzyuUjL42KGYRhmQ4+1zK7Q3Pha0MES7oekNGMHR2Aghg2/ccnJ4fSyAs07FmGEAAAACOBHYJaSmCjWqr+H1O+SEMz1XAsE28sr2jdrbdZp75d3fL8UBnR+QTyvijjCnpcQ3BL9cjuy0bP48hU9WcGvzP"
 }

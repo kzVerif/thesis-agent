@@ -2,3 +2,6 @@
 download
 .env
 /download
+ws-agent.exe
+agent_config.json
+logs

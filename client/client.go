@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -118,7 +119,7 @@ func (c *Client) Run(
 		if ctx.Err() != nil {
 			return nil
 		}
-		fmt.Printf("WebSocket disconnected: %v; reconnecting in %s\n", err, reconnectDelay)
+		log.Printf("websocket disconnected: %v; reconnecting in %s", err, reconnectDelay)
 		timer := time.NewTimer(reconnectDelay)
 		select {
 		case <-timer.C:
@@ -154,7 +155,7 @@ func (c *Client) runConnection(
 		c.connectionMu.Unlock()
 	}()
 
-	fmt.Println("Connected to WebSocket Server")
+	log.Printf("websocket connected")
 	if err := writeJSON(ctx, conn, initialMessage); err != nil {
 		return err
 	}
@@ -236,13 +237,13 @@ func (c *Client) killProcess(ctx context.Context, conn *safeConnection, pid int3
 	} else if err := killer(pid); err != nil {
 		result.Message = "ไม่สามารถปิดโปรเซสได้"
 		result.Error = fmt.Sprintf("ไม่สามารถปิดโปรเซส PID %d ได้ กรุณาตรวจสอบว่าโปรเซสยังทำงานอยู่และ agent มีสิทธิ์เพียงพอ", pid)
-		fmt.Printf("Kill process %d failed: %v\n", pid, err)
+		log.Printf("kill process %d failed: %v", pid, err)
 	} else {
 		result.Success = true
 		result.Message = "ปิดโปรเซสสำเร็จ"
 	}
 	if err := writeJSON(ctx, conn, result); err != nil {
-		fmt.Println("Send process kill result failed:", err)
+		log.Printf("send process kill result failed: %v", err)
 	}
 }
 

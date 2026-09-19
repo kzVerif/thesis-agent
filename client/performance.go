@@ -2,7 +2,7 @@ package client
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"time"
 )
 
@@ -38,11 +38,11 @@ func (c *Client) publishOnCommand(
 	send := func() bool {
 		message, err := provider()
 		if err != nil {
-			fmt.Printf("Collect %s failed: %v\n", messageName, err)
+			log.Printf("collect %s failed: %v", messageName, err)
 			return true
 		}
 		if err := writeJSON(ctx, conn, message); err != nil {
-			fmt.Printf("Send %s failed: %v\n", messageName, err)
+			log.Printf("send %s failed: %v", messageName, err)
 			return false
 		}
 		return true

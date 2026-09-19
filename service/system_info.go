@@ -9,11 +9,7 @@ import (
 
 func GetSystemInfo() model.SystemInfo {
 	info := model.SystemInfo{
-		OSInfo: model.OSInfo{
-			Name:    runtime.GOOS,
-			Edition: runtime.GOARCH,
-			Version: getOSVersion(),
-		},
+		OSInfo: getOSInfo(),
 	}
 
 	if id, err := GetOrCreateAgentID(); err == nil {
@@ -25,4 +21,12 @@ func GetSystemInfo() model.SystemInfo {
 	info.IPAddress, info.MACAddress = getPrimaryNetwork()
 
 	return info
+}
+
+func getOSInfo() model.OSInfo {
+	return model.OSInfo{
+		Name:    runtime.GOOS,
+		Edition: runtime.GOARCH,
+		Version: getOSVersion(),
+	}
 }

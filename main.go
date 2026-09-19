@@ -17,8 +17,20 @@ import (
 
 func main() {
 	cfg := config.Load()
+	closeLogs, err := service.InitLogging()
+	if err != nil {
+		log.Printf("logging initialization failed: %v", err)
+	} else {
+		defer closeLogs()
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+
+	info, err := service.EnsureRegistered(ctx, cfg.APIBaseURL)
+	if err != nil {
+		log.Fatal(err)
+	}
+	service.DetachConsole()
 
 	wsClient := client.New(
 		cfg.WebSocketURL,
@@ -38,7 +50,6 @@ func main() {
 	wsClient.ConfigurePower(powerController)
 	log.Printf("power controller mode: %s", powerController.Mode())
 
-	info := service.GetSystemInfo()
 	if err := wsClient.ConfigureDownloads(download.Config{Directory: cfg.DownloadDirectory, MaxConcurrent: cfg.MaxConcurrentDownloads, QueueSize: cfg.DownloadQueueSize, MaxFileSize: cfg.MaxDownloadSize, AllowHTTP: cfg.AllowLocalHTTPDownloads}, info.ID); err != nil {
 		log.Fatal(err)
 	}

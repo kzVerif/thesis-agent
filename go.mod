@@ -7,6 +7,7 @@ require (
 	github.com/kbinani/screenshot v0.0.0-20250624051815-089614a94018
 	github.com/shirou/gopsutil/v4 v4.26.7
 	golang.org/x/image v0.35.0
+	golang.org/x/sys v0.41.0
 )
 
 require (
@@ -25,5 +26,4 @@ require (
 	github.com/tklauser/go-sysconf v0.3.16 // indirect
 	github.com/tklauser/numcpus v0.11.0 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
-	golang.org/x/sys v0.41.0 // indirect
 )

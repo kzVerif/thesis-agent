@@ -2,7 +2,7 @@ package client
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"sync"
 	"time"
 
@@ -63,11 +63,11 @@ func (s *ScreenStreamer) run(ctx context.Context, conn *safeConnection, done cha
 		case <-ticker.C:
 			frame, err := s.capture()
 			if err != nil {
-				fmt.Println("Capture screen failed:", err)
+				log.Printf("capture screen failed: %v", err)
 				continue
 			}
 			if err := conn.write(ctx, websocket.MessageBinary, frame); err != nil {
-				fmt.Println("Send screen frame failed:", err)
+				log.Printf("send screen frame failed: %v", err)
 				return
 			}
 		case <-ctx.Done():

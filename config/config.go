@@ -11,9 +11,11 @@ import (
 )
 
 const defaultWebSocketURL = "ws://localhost:8081/ws"
+const defaultAPIBaseURL = "http://localhost:8080"
 
 type Config struct {
 	WebSocketURL            string
+	APIBaseURL              string
 	HeartbeatInterval       time.Duration
 	PerformanceInterval     time.Duration
 	PingTimeout             time.Duration
@@ -31,6 +33,10 @@ func Load() Config {
 	url := os.Getenv("WS_SERVER_URL")
 	if url == "" {
 		url = defaultWebSocketURL
+	}
+	apiBaseURL := os.Getenv("AGENT_API_URL")
+	if apiBaseURL == "" {
+		apiBaseURL = defaultAPIBaseURL
 	}
 
 	maxSize := int64(10 << 30)
@@ -51,6 +57,7 @@ func Load() Config {
 	}
 	return Config{
 		WebSocketURL:            url,
+		APIBaseURL:              apiBaseURL,
 		HeartbeatInterval:       20 * time.Second,
 		PerformanceInterval:     5 * time.Second,
 		PingTimeout:             5 * time.Second,

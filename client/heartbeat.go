@@ -2,7 +2,7 @@ package client
 
 import (
 	"context"
-	"fmt"
+	"log"
 	"time"
 )
 
@@ -17,10 +17,10 @@ func (c *Client) heartbeat(ctx context.Context, conn *safeConnection) {
 			err := conn.ping(pingCtx)
 			cancel()
 			if err != nil {
-				fmt.Println("Ping failed:", err)
+				log.Printf("ping failed: %v", err)
 				return
 			}
-			fmt.Println("Ping OK")
+			log.Printf("ping ok")
 		case <-ctx.Done():
 			return
 		}
