@@ -7,20 +7,20 @@
 เมื่อ Agent เริ่มทำงาน จะทำตามลำดับนี้:
 
 ```text
-โหลดหรือสร้าง agent_config.json
+โหลด identity เดิม (สร้างได้เฉพาะ interactive provisioning/development)
         |
         v
 GET /api/agents/{agent_id}/exists
         |
         +-- 204: Agent มีอยู่แล้ว -> ข้ามการสมัคร
         |
-        +-- 404: Agent ยังไม่มี -> ขอ registration token จาก CLI
+        +-- 404: interactive ขอ token; Service หยุดให้ Administrator provision
                          |
                          v
                  POST /api/agents/register
                          |
                          v
-                 เริ่มทำงานตามปกติแบบ background
+                  เริ่ม runtime (Console ยังคงอยู่ใน terminal)
 ```
 
 การตรวจสอบ Agent ใช้ `agent_id` เป็นหลัก ไม่ใช้ IP หรือ MAC address เป็นตัวตนถาวรของเครื่อง
@@ -33,12 +33,14 @@ Agent ใช้ algorithm:
 Ed25519
 ```
 
-เมื่อยังไม่มี key pair ระบบจะสร้าง:
+เมื่อไม่มีไฟล์ identity และกำลังทำ interactive provisioning/development ระบบจะสร้าง:
 
 - `public_key` สำหรับส่งให้ Server
 - `private_key` สำหรับเก็บไว้ในเครื่อง Agent
 
 Private key จะไม่ถูกส่งไป Server
+
+หากไฟล์ identity มีอยู่แล้วแต่ข้อมูลไม่ครบหรือผิดรูปแบบ ระบบจะหยุดและแจ้งให้ผู้ดูแลตรวจสอบ โดยไม่สร้าง key ทับ ดูขั้นตอนย้าย identity และ Windows Service ที่ [windows-service.md](windows-service.md)
 
 ## การป้องกัน Private Key ด้วย DPAPI
 
@@ -60,7 +62,11 @@ encrypted_private_key
 service/dpapi_windows.go
 ```
 
-การทำงานปัจจุบันใช้ DPAPI แบบผูกกับ Windows user/service account ที่รัน Agent อยู่ หากเปลี่ยน account หรือเครื่อง อาจไม่สามารถถอดรหัส private key เดิมได้
+Identity เดิมที่ไม่มี `private_key_protection` และ identity ใหม่ใน Console ใช้ user-scope DPAPI
+ส่วน identity ใหม่จาก Service provisioning ใช้ machine-scope DPAPI พร้อม metadata
+`"private_key_protection": "dpapi-machine-v1"` และ ACL ที่ให้ SYSTEM/Administrators เท่านั้น
+การย้าย key เดิมต้องใช้คำสั่ง explicit แยกต่างหาก ดู [private-key-protection.md](private-key-protection.md)
+Service startup ยังคงไม่ decrypt หรือ migrate key อัตโนมัติ
 
 ## รูปแบบ `agent_config.json`
 
@@ -83,6 +89,7 @@ service/dpapi_windows.go
 | `algorithm` | Algorithm ที่ใช้สร้าง key pair |
 | `public_key` | Public key ที่ encode เป็น Base64 |
 | `encrypted_private_key` | Private key ที่เข้ารหัสด้วย DPAPI และ encode เป็น Base64 |
+| `private_key_protection` | `dpapi-machine-v1` สำหรับ Service; ไม่มี field หมายถึง legacy user scope; version อื่นถูกปฏิเสธ |
 
 ไฟล์นี้ควรมีสิทธิ์อ่าน/เขียนเฉพาะ account ที่ใช้รัน Agent
 
@@ -94,13 +101,19 @@ GET /api/agents/{agent_id}/exists
 
 ไม่ใช้ session หรือ permission
 
+เส้นนี้ยืนยันเพียงว่ามี Agent record ตาม ID ไม่ได้พิสูจน์ว่าผู้เรียกถือ private key
+และไม่เปรียบเทียบ public key ฝั่ง Agent กับฐานข้อมูล ส่วน enrollment marker เป็น
+สถานะ provisioning ในเครื่อง ไม่ใช่หลักฐาน authentication แม้ฟิลด์จะชื่อ `verified`
+Phase 4 เพิ่มการพิสูจน์ความเป็นเจ้าของ key ผ่าน WebSocket แล้ว ดู [Agent authentication](agent-authentication.md)
+
 ผลลัพธ์:
 
 | HTTP status | ความหมาย |
 |---|---|
 | `204 No Content` | พบ Agent แล้ว ข้ามการสมัคร |
 | `404 Not Found` | ยังไม่พบ Agent ต้องสมัครครั้งแรก |
-| อื่น ๆ | ถือว่าเกิดข้อผิดพลาดและหยุด startup |
+| 408 / 429 / 5xx / network failure | Service รอ retry โดยยกเลิกได้ผ่าน context; Console แจ้ง error |
+| HTTP error อื่น | แจ้ง configuration/provisioning error และหยุด |
 
 ## API สมัครครั้งแรก
 
@@ -137,9 +150,29 @@ Content-Type: application/json
 
 `room_id` ยังไม่ได้กำหนดจากฝั่ง Agent ใน implementation ปัจจุบัน และเป็นฟิลด์ optional ของ API
 
-หลัง Server ตอบสำเร็จ Agent จะไม่สมัครซ้ำในการรันครั้งถัดไป ตราบใดที่ `agent_config.json` และ `agent_id` ยังอยู่
+REST ตรวจ `public_key` ก่อนเริ่ม transaction: รับไม่เกิน 256 bytes ก่อน trim,
+ตัด whitespace เฉพาะรอบนอก แล้วรับ standard padded Base64 ความยาว 44 ตัวอักษร
+ที่ decode ด้วย strict encoding ได้ public key ขนาด 32 bytes (`ed25519.PublicKeySize`)
+ไม่รับ PEM, Base64URL, padding ที่ไม่ถูกต้อง, whitespace ภายใน หรือ Ed25519 private key 64 bytes
+จัดเก็บเป็น canonical Base64; รูปแบบผิดตอบ HTTP 400 และไม่ใช้โควตา token
+ตัวอย่าง `BASE64_PUBLIC_KEY` เป็น placeholder ต้องแทนด้วย public key จริงที่ Agent สร้าง
+
+Phase 1 คง `DecodeIdentity` เดิม: ตรวจ UUID, algorithm เป็น `Ed25519`,
+public key Base64 ขนาด 32 bytes และ encrypted private key Base64 ที่ไม่ว่าง
+ไม่ decrypt, re-encrypt, ตรวจคู่ public/private ทางคณิตศาสตร์ หรือเขียนแก้ไฟล์เดิม
+หากผิดรูปแบบให้ผู้ดูแลตรวจสอบ ไม่ลบ identity เพื่อให้ระบบสร้างใหม่
+
+Phase 2 เพิ่มการตรวจ protection version ใน structural loader และเพิ่ม
+`LoadPrivateKey` แยกสำหรับ private-key use ซึ่ง decrypt และ derive public key จาก seed
+แล้วตรวจความสอดคล้องของ key ทั้งคู่ โดยยังไม่เรียกใช้ใน Service startup หรือ WebSocket protocol
+
+หลัง Server ตอบสำเร็จ Agent บันทึก enrollment marker แยกจาก identity โดยผูกกับ ID, public-key fingerprint และ API ที่ตรวจสอบ การเริ่มครั้งถัดไปยังตรวจ `/exists` เสมอ; `204` ข้าม enrollment, `404` ต้อง provisioning ใหม่ และไม่สร้าง identity ใหม่
 
 ## Registration Token
+
+Enrollment Token ให้อำนาจสมัครเข้าระบบครั้งแรก ไม่ใช่หลักฐานยืนยันทุก WebSocket connection
+Agent ID เป็น identifier ที่ไม่ใช่ secret; Ed25519 ใช้ Sign/Verify ไม่ใช่ Encrypt/Decrypt
+private key ต้องอยู่ในเครื่อง Agent เท่านั้น
 
 ถ้า API ตอบ `404` Agent จะขอ token ผ่าน CLI:
 
@@ -152,7 +185,7 @@ Agent registration token:
 - token จะไม่ถูกเขียนลง `agent_config.json`
 - token จะไม่ถูกเขียนลง Agent log
 - ห้ามใส่ token ไว้ใน source code หรือ binary
-- หากไม่มี stdin เช่น รันเป็น service ตั้งแต่ครั้งแรก การสมัครจะล้มเหลวและต้องทำ enrollment แบบ interactive ก่อน
+- Service ไม่อ่าน stdin: ต้องทำ administrative provisioning ก่อน หากมี identity แต่ไม่มี marker จะตรวจ API; เมื่อ API ไม่พร้อมจะรอ retry ในสถานะยังไม่ทราบ
 
 ## ข้อมูลเครื่อง
 
@@ -216,7 +249,7 @@ AGENT_LOG_PATH=./logs/agent.log
 | `service/registration.go` | ตรวจสอบและสมัครกับ API |
 | `service/dpapi_windows.go` | เรียก Windows DPAPI |
 | `service/logging.go` | ตั้งค่า log file |
-| `service/console_windows.go` | detach console หลัง enrollment |
+| `service/console_windows.go` | helper เดิมที่เก็บไว้; startup ปัจจุบันไม่เรียก detach console |
 | `config/config.go` | โหลดค่า API และ runtime config |
 
 ## การทดสอบเบื้องต้น
@@ -231,7 +264,7 @@ go build
 
 การทดสอบกับ Server จริงควรตรวจสอบอย่างน้อย:
 
-1. ลบหรือย้าย `agent_config.json`
+1. ใช้ไดเรกทอรีทดสอบใหม่ที่ไม่มี identity โดยไม่ลบหรือเปลี่ยนไฟล์ของ installation เดิม
 2. เปิด Agent
 3. ตรวจสอบว่า Agent ขอ token ผ่าน CLI
 4. ตรวจสอบ request ที่ `/api/agents/register`
@@ -249,6 +282,6 @@ go build
 - เพิ่ม timestamp และ nonce เพื่อป้องกัน replay
 - เพิ่ม key rotation และ revoke
 - รองรับ TPM-backed key
-- เพิ่มการตั้ง NTFS ACL อย่างชัดเจน
+- ตรวจยืนยัน NTFS ACL ของ Service ด้วยบัญชี Standard User ตาม checklist
 - เพิ่ม integration test กับ Server จริง
-- เพิ่ม retry policy สำหรับ API ที่ชั่วคราวล่ม
+- ตรวจยืนยัน Service retry เมื่อ API ล่มระหว่าง boot ตาม checklist

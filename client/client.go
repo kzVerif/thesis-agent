@@ -7,14 +7,24 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
 	"ws-agent/antivirus"
 	"ws-agent/download"
+	"ws-agent/internal/retry"
+	"ws-agent/internal/transportpolicy"
 )
 
 type Client struct {
+	agentID             string
+	loadPrivateKey      PrivateKeyLoader
+	eventCtx            context.Context
+	eventCancel         context.CancelFunc
+	closeOnce           sync.Once
+	stopping            atomic.Bool
+	stableConnection    bool
 	url                 string
 	heartbeatInterval   time.Duration
 	performanceInterval time.Duration
@@ -47,6 +57,7 @@ func New(url string, heartbeatInterval, performanceInterval, pingTimeout time.Du
 		pingTimeout:         pingTimeout,
 		pendingResults:      make(chan any, 32),
 	}
+	c.eventCtx, c.eventCancel = context.WithCancel(context.Background())
 	c.scanManager = antivirus.NewManager(antivirus.Scan, c.sendDownloadEvent)
 	return c
 }
@@ -60,11 +71,14 @@ func (c *Client) ConfigureDownloads(cfg download.Config, agentID string) error {
 }
 
 func (c *Client) sendDownloadEvent(message any) error {
+	if c.stopping.Load() {
+		return context.Canceled
+	}
 	c.connectionMu.RLock()
 	conn := c.connection
 	c.connectionMu.RUnlock()
 	if conn != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(c.eventCtx, 10*time.Second)
 		err := writeJSON(ctx, conn, message)
 		cancel()
 		if err == nil {
@@ -113,21 +127,59 @@ func (c *Client) Run(
 	processKiller ProcessKiller,
 	screenCapture ScreenCapture,
 ) error {
-	const reconnectDelay = 3 * time.Second
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopOnClose := context.AfterFunc(c.eventCtx, cancel)
+	defer stopOnClose()
+	// Cancel pending power operations and manager I/O as soon as the runtime
+	// stops, even while a provider is still unwinding in runConnection.
+	closeOnCancel := context.AfterFunc(ctx, c.Close)
+	defer func() { closeOnCancel(); c.Close() }()
+	backoff := retry.New()
 	for {
-		err := c.runConnection(ctx, initialMessage, performanceProvider, processProvider, processKiller, screenCapture)
 		if ctx.Err() != nil {
 			return nil
 		}
-		log.Printf("websocket disconnected: %v; reconnecting in %s", err, reconnectDelay)
-		timer := time.NewTimer(reconnectDelay)
-		select {
-		case <-timer.C:
-		case <-ctx.Done():
-			timer.Stop()
+		c.stableConnection = false
+		connectionErr := c.runConnection(ctx, initialMessage, performanceProvider, processProvider, processKiller, screenCapture)
+		if ctx.Err() != nil {
+			return nil
+		}
+		if c.stableConnection {
+			backoff.Reset()
+		}
+		delay := backoff.Next()
+		// Remote close reasons and URL-bearing errors are untrusted log input.
+		reason := transportpolicy.FailureKind(connectionErr)
+		var authErr *authenticationError
+		if errors.As(connectionErr, &authErr) {
+			reason = authErr.Error()
+		}
+		log.Printf("websocket disconnected (%s); reconnect scheduled in %s", reason, delay)
+		if retry.Wait(ctx, delay) != nil {
 			return nil
 		}
 	}
+}
+
+func (c *Client) Close() {
+	c.closeOnce.Do(func() {
+		c.stopping.Store(true)
+		c.eventCancel()
+		c.connectionMu.RLock()
+		conn := c.connection
+		c.connectionMu.RUnlock()
+		if conn != nil {
+			_ = conn.conn.CloseNow()
+		}
+		if closer, ok := c.powerController.(interface{ Close() }); ok {
+			closer.Close()
+		}
+		if c.downloadManager != nil {
+			c.downloadManager.Close()
+		}
+		c.scanManager.Close()
+	})
 }
 
 func (c *Client) runConnection(
@@ -138,12 +190,23 @@ func (c *Client) runConnection(
 	processKiller ProcessKiller,
 	screenCapture ScreenCapture,
 ) error {
-	rawConn, _, err := websocket.Dial(ctx, c.url, nil)
+	log.Printf("websocket connecting")
+	dialCtx, dialCancel := context.WithTimeout(ctx, 15*time.Second)
+	rawConn, _, err := websocket.Dial(dialCtx, c.url, &websocket.DialOptions{HTTPClient: transportpolicy.NewClient(0)})
+	dialCancel()
 	if err != nil {
 		return fmt.Errorf("connect WebSocket: %w", err)
 	}
 	defer rawConn.CloseNow()
+	if err := c.authenticate(ctx, rawConn); err != nil {
+		return err
+	}
+	log.Printf("Agent WebSocket authenticated")
 	conn := &safeConnection{conn: rawConn}
+	// Initial metadata must precede asynchronous queued job results.
+	if err := writeJSON(ctx, conn, initialMessage); err != nil {
+		return err
+	}
 	c.connectionMu.Lock()
 	c.connection = conn
 	c.connectionMu.Unlock()
@@ -156,29 +219,31 @@ func (c *Client) runConnection(
 	}()
 
 	log.Printf("websocket connected")
-	if err := writeJSON(ctx, conn, initialMessage); err != nil {
-		return err
-	}
+	connectedAt := time.Now()
+	defer func() { c.stableConnection = time.Since(connectedAt) >= 30*time.Second }()
 	c.flushPending(ctx, conn)
 
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	var workers sync.WaitGroup
+	start := func(fn func()) { workers.Add(1); go func() { defer workers.Done(); fn() }() }
 
 	performanceCommands := make(chan bool, 1)
 	processCommands := make(chan bool, 1)
 	screenStreamer := NewScreenStreamer(screenCapture)
-	defer screenStreamer.Stop()
-	go c.heartbeat(runCtx, conn)
-	go c.publishPerformance(runCtx, conn, performanceProvider, performanceCommands)
+	defer func() { cancel(); _ = rawConn.CloseNow(); screenStreamer.Stop(); workers.Wait() }()
+	start(func() { c.heartbeat(runCtx, conn) })
+	if performanceProvider != nil {
+		start(func() { c.publishPerformance(runCtx, conn, performanceProvider, performanceCommands) })
+	}
 	if processProvider != nil {
-		go c.publishProcess(runCtx, conn, processProvider, processCommands)
+		start(func() { c.publishProcess(runCtx, conn, processProvider, processCommands) })
 	}
 	if err := readJSONMessages(runCtx, conn, func(data []byte) {
 		if c.handleVirusScan(ctx, data) {
 			return
 		}
 		if command, ok := parsePowerCommand(data); ok {
-			go c.handlePowerCommand(runCtx, conn, command)
+			start(func() { c.handlePowerCommand(runCtx, conn, command) })
 			return
 		}
 		if c.downloadManager == nil {
@@ -202,7 +267,7 @@ func (c *Client) runConnection(
 			setStreamState(performanceCommands, command.start)
 		case streamProcess:
 			if command.kill {
-				go c.killProcess(runCtx, conn, command.killPID, processKiller)
+				start(func() { c.killProcess(runCtx, conn, command.killPID, processKiller) })
 			} else if processProvider != nil {
 				setStreamState(processCommands, command.start)
 			}

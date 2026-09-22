@@ -3,6 +3,7 @@ package antivirus
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,10 +38,13 @@ type Result struct {
 type Scanner func(context.Context, Command) (Report, error)
 
 type Manager struct {
-	mu   sync.Mutex
-	busy bool
-	scan Scanner
-	send func(any) error
+	closed bool
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	mu     sync.Mutex
+	busy   bool
+	scan   Scanner
+	send   func(any) error
 }
 
 func NewManager(scan Scanner, send func(any) error) *Manager {
@@ -71,7 +75,7 @@ func Validate(c Command) error {
 
 func (m *Manager) emit(r Result) {
 	if err := m.send(r); err != nil {
-		fmt.Printf("Send antivirus event failed: %v\n", err)
+		log.Printf("send antivirus event failed")
 	}
 }
 
@@ -85,14 +89,23 @@ func (m *Manager) Submit(ctx context.Context, c Command) {
 		return
 	}
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
 	if m.busy {
 		m.mu.Unlock()
 		m.Reject(c, "another scan is running")
 		return
 	}
 	m.busy = true
+	ctx, cancel := context.WithCancel(ctx)
+	m.cancel = cancel
+	m.wg.Add(1)
 	m.mu.Unlock()
 	go func() {
+		defer m.wg.Done()
+		defer cancel()
 		defer func() { m.mu.Lock(); m.busy = false; m.mu.Unlock() }()
 		r := Result{Type: "virus_scan_status", RequestID: c.RequestID, ScanType: c.ScanType, Status: "running", StartedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 		m.emit(r)
@@ -107,4 +120,14 @@ func (m *Manager) Submit(ctx context.Context, c Command) {
 		}
 		m.emit(r)
 	}()
+}
+
+func (m *Manager) Close() {
+	m.mu.Lock()
+	m.closed = true
+	if m.cancel != nil {
+		m.cancel()
+	}
+	m.mu.Unlock()
+	m.wg.Wait()
 }

@@ -33,6 +33,7 @@ func newTestManager(t *testing.T, cfg Config) (*Manager, <-chan any) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(m.Close)
 	return m, events
 }
 func awaitResult(t *testing.T, events <-chan any) Result {

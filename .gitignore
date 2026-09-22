@@ -1,7 +1,17 @@
 .tmp-go-cache
-download
 .env
-/download
 ws-agent.exe
 agent_config.json
 logs
+
+# Runtime files stay local and must not be committed or shared as identities.
+.env.*
+!.env.example
+/build/
+/enrollment_state.json
+/.runtime.lock
+/.state-*.tmp
+*.test
+*.exe
+/data/downloads/
+*.dpapi-user-v1.bak

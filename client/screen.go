@@ -32,6 +32,9 @@ func (s *ScreenStreamer) Start(ctx context.Context, conn *safeConnection) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.streaming || s.capture == nil {
+		if s.capture == nil {
+			log.Printf("screen capture unavailable in Service mode (Session 0); runtime continues")
+		}
 		return
 	}
 
@@ -67,7 +70,7 @@ func (s *ScreenStreamer) run(ctx context.Context, conn *safeConnection, done cha
 				continue
 			}
 			if err := conn.write(ctx, websocket.MessageBinary, frame); err != nil {
-				log.Printf("send screen frame failed: %v", err)
+				log.Printf("send screen frame failed")
 				return
 			}
 		case <-ctx.Done():

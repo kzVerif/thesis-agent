@@ -17,7 +17,8 @@ func (c *Client) heartbeat(ctx context.Context, conn *safeConnection) {
 			err := conn.ping(pingCtx)
 			cancel()
 			if err != nil {
-				log.Printf("ping failed: %v", err)
+				log.Printf("ping failed; closing connection")
+				_ = conn.conn.CloseNow()
 				return
 			}
 			log.Printf("ping ok")

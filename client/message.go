@@ -32,9 +32,11 @@ func writeJSON(ctx context.Context, conn *safeConnection, message any) error {
 		return fmt.Errorf("encode JSON: %w", err)
 	}
 	if err := conn.write(ctx, websocket.MessageText, data); err != nil {
-		return fmt.Errorf("write WebSocket message: %w", err)
+		return fmt.Errorf("write WebSocket message failed")
 	}
-	log.Printf("websocket message sent: %s", data)
+	// Payloads can contain temporary credentials, scan output and other private
+	// data. Only bounded metadata belongs in durable logs.
+	log.Printf("websocket JSON sent bytes=%d", len(data))
 	return nil
 }
 
@@ -143,13 +145,13 @@ func readJSONMessages(ctx context.Context, conn *safeConnection, onMessage func(
 	for {
 		messageType, data, err := conn.read(ctx)
 		if err != nil {
-			return fmt.Errorf("read WebSocket message: %w", err)
+			return fmt.Errorf("read WebSocket message failed")
 		}
 		if messageType != websocket.MessageText || !json.Valid(data) {
 			log.Printf("invalid server message: expected JSON text")
 			continue
 		}
-		log.Printf("websocket message received: %s", data)
+		log.Printf("websocket JSON received bytes=%d", len(data))
 		onMessage(data)
 		if command := parseStreamCommand(data); command.stream != streamUnknown {
 			onStreamCommand(command)

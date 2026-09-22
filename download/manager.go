@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"ws-agent/internal/transportpolicy"
 
 	"github.com/google/uuid"
 )
@@ -37,6 +38,10 @@ type queuedJob struct {
 	command Command
 }
 type Manager struct {
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	closed         bool
 	cfg            Config
 	agentID        string
 	send           Sender
@@ -69,6 +74,20 @@ func NewManager(cfg Config, agentID string, send Sender) (*Manager, error) {
 	if cfg.HTTPClient == nil {
 		cfg.HTTPClient = &http.Client{Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 15 * time.Second, ResponseHeaderTimeout: 30 * time.Second, IdleConnTimeout: 90 * time.Second}}
 	}
+	// Copy the injected client so a caller's client is not mutated. Preserve any
+	// stricter caller policy after the mandatory transport/token boundary check.
+	httpClient := *cfg.HTTPClient
+	previousRedirect := httpClient.CheckRedirect
+	httpClient.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if err := transportpolicy.CheckRedirect(req, via); err != nil {
+			return err
+		}
+		if previousRedirect != nil {
+			return previousRedirect(req, via)
+		}
+		return nil
+	}
+	cfg.HTTPClient = &httpClient
 	if cfg.SpaceChecker == nil {
 		cfg.SpaceChecker = availableDiskSpace
 	}
@@ -81,8 +100,10 @@ func NewManager(cfg Config, agentID string, send Sender) (*Manager, error) {
 		return nil, err
 	}
 	m := &Manager{cfg: cfg, agentID: agentID, send: send, jobs: make(chan queuedJob, cfg.QueueSize), active: make(map[string]string), completed: make(map[string]Result)}
+	m.ctx, m.cancel = context.WithCancel(context.Background())
 	for i := 0; i < cfg.MaxConcurrent; i++ {
-		go m.worker()
+		m.wg.Add(1)
+		go func() { defer m.wg.Done(); m.worker() }()
 	}
 	return m, nil
 }
@@ -94,6 +115,10 @@ func (m *Manager) Submit(ctx context.Context, cmd Command) {
 	}
 	attemptKey := commandAttemptKey(cmd)
 	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return
+	}
 	if result, exists := m.completed[attemptKey]; exists {
 		m.mu.Unlock()
 		_ = m.send(result)
@@ -105,11 +130,12 @@ func (m *Manager) Submit(ctx context.Context, cmd Command) {
 		return
 	}
 	m.active[attemptKey] = "QUEUED"
-	m.mu.Unlock()
 	select {
 	case m.jobs <- queuedJob{ctx, cmd}:
+		m.mu.Unlock()
 		log.Printf("download job received job_id=%s file_id=%s filename=%q agent_id=%s", cmd.JobID, cmd.FileID, cmd.Filename, m.agentID)
 	default:
+		m.mu.Unlock()
 		m.finish(attemptKey)
 		m.fail(cmd, &JobError{Code: DownloadFailed, Message: "download queue is full"})
 	}
@@ -122,9 +148,28 @@ func (m *Manager) Reject(cmd Command, message string) {
 
 func (m *Manager) worker() {
 	for job := range m.jobs {
-		m.run(job.ctx, job.command)
+		if m.ctx.Err() == nil {
+			ctx, cancel := context.WithCancel(job.ctx)
+			stop := context.AfterFunc(m.ctx, cancel)
+			m.run(ctx, job.command)
+			stop()
+			cancel()
+		}
 		m.finish(commandAttemptKey(job.command))
 	}
+}
+
+// Close cancels active I/O, discards queued work and joins every worker.
+func (m *Manager) Close() {
+	m.mu.Lock()
+	if !m.closed {
+		m.closed = true
+		m.cancel()
+		close(m.jobs)
+	}
+	m.mu.Unlock()
+	m.wg.Wait()
+	m.cfg.HTTPClient.CloseIdleConnections()
 }
 
 func commandAttemptKey(cmd Command) string {
@@ -195,7 +240,7 @@ func (m *Manager) validate(c Command) error {
 		return &JobError{Code: InvalidCommand, Message: "filename must be a plain file name"}
 	}
 	u, err := url.Parse(c.DownloadURL)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" {
 		return &JobError{Code: InvalidCommand, Message: "download_url is invalid"}
 	}
 	if u.Scheme != "https" && !(u.Scheme == "http" && m.cfg.AllowHTTP && isLoopbackHost(u.Hostname())) {
@@ -283,7 +328,7 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		return
 	}
 	m.setStatus(c, "VERIFYING")
-	actual, err := fileSHA256(part)
+	actual, err := fileSHA256Context(ctx, part)
 	if err != nil {
 		_ = os.Remove(part)
 		m.failAt(c, &JobError{Code: InternalError, Message: "could not calculate checksum", Err: err}, n)
@@ -294,6 +339,10 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		log.Printf("hash verification failed job_id=%s file_id=%s filename=%q", c.JobID, c.FileID, c.Filename)
 		_ = os.Remove(part)
 		m.failAt(c, &JobError{Code: HashMismatch, Message: "downloaded file checksum does not match"}, n)
+		return
+	}
+	if ctx.Err() != nil {
+		m.failAt(c, &JobError{Code: Cancelled, Message: "download cancelled"}, n)
 		return
 	}
 	if err := finalizeTemporary(part, dest); err != nil {
@@ -322,6 +371,7 @@ func (m *Manager) doRequest(ctx context.Context, c Command) (*http.Response, err
 		req.Header.Set("X-Agent-ID", m.agentID)
 		resp, err := m.cfg.HTTPClient.Do(req)
 		if err != nil {
+			log.Printf("download transport failed (%s)", transportpolicy.FailureKind(err))
 			return nil, err
 		}
 		if resp.StatusCode < 500 || resp.StatusCode > 599 || attempt == maxAttempts {
@@ -345,16 +395,32 @@ func (m *Manager) doRequest(ctx context.Context, c Command) (*http.Response, err
 }
 
 func fileSHA256(path string) ([]byte, error) {
+	return fileSHA256Context(context.Background(), path)
+}
+
+func fileSHA256Context(ctx context.Context, path string) ([]byte, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
 	h := sha256.New()
-	if _, err = io.Copy(h, f); err != nil {
+	if _, err = io.Copy(h, contextReader{ctx, f}); err != nil {
 		return nil, err
 	}
 	return h.Sum(nil), nil
+}
+
+type contextReader struct {
+	ctx    context.Context
+	reader io.Reader
+}
+
+func (r contextReader) Read(p []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.reader.Read(p)
 }
 
 type progressWriter struct {
