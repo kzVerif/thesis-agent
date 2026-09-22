@@ -16,6 +16,8 @@ type WindowsPowerController struct {
 
 func (*WindowsPowerController) Mode() string { return "real" }
 
+func (*WindowsPowerController) Close() {}
+
 func (*WindowsPowerController) Shutdown(context.Context) error {
 	return fmt.Errorf("real shutdown is only supported on Windows")
 }

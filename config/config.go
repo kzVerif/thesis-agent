@@ -14,6 +14,7 @@ const defaultWebSocketURL = "ws://localhost:8081/ws"
 const defaultAPIBaseURL = "http://localhost:8080"
 
 type Config struct {
+	TransportMode           string
 	WebSocketURL            string
 	APIBaseURL              string
 	HeartbeatInterval       time.Duration
@@ -30,6 +31,18 @@ func Load() Config {
 	// Load developer settings from .env without replacing variables explicitly
 	// supplied by the process, service manager, container, or CI environment.
 	_ = loadDotEnv(".env")
+	return fromEnvironment()
+}
+
+// LoadFile uses an explicit location; it never consults the process CWD.
+func LoadFile(path string) (Config, error) {
+	if err := loadDotEnv(path); err != nil {
+		return Config{}, err
+	}
+	return fromEnvironment(), nil
+}
+
+func fromEnvironment() Config {
 	url := os.Getenv("WS_SERVER_URL")
 	if url == "" {
 		url = defaultWebSocketURL
@@ -56,6 +69,7 @@ func Load() Config {
 		downloadDir = filepath.Join("data", "downloads")
 	}
 	return Config{
+		TransportMode:           os.Getenv("TRANSPORT_MODE"),
 		WebSocketURL:            url,
 		APIBaseURL:              apiBaseURL,
 		HeartbeatInterval:       20 * time.Second,
@@ -86,7 +100,7 @@ func loadDotEnv(path string) error {
 
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		line := strings.TrimSpace(strings.TrimPrefix(scanner.Text(), "\ufeff"))
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}

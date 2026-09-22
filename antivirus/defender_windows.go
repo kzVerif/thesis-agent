@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"time"
 )
 
 // Keep only a bounded prefix while continuing to drain process output.
@@ -57,6 +58,7 @@ func Scan(ctx context.Context, c Command) (Report, error) {
 		args = append(args, "-File", c.Path)
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)
+	cmd.WaitDelay = 3 * time.Second
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	output := &limitedOutput{}
 	cmd.Stdout, cmd.Stderr = output, output

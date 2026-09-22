@@ -4,12 +4,16 @@ package service
 
 import (
 	"fmt"
+	"runtime"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
 )
 
-const cryptProtectUIForbidden = 0x1
+const (
+	cryptProtectUIForbidden  = 0x1
+	cryptProtectLocalMachine = 0x4
+)
 
 type dataBlob struct {
 	cbData uint32
@@ -25,14 +29,19 @@ var (
 )
 
 func protectPrivateKey(data []byte) ([]byte, error) {
-	return dpapiTransform(cryptProtectData, data)
+	return dpapiTransform(cryptProtectData, cryptProtectUIForbidden, data)
+}
+
+func protectPrivateKeyForMachine(data []byte) ([]byte, error) {
+	return dpapiTransform(cryptProtectData, cryptProtectUIForbidden|cryptProtectLocalMachine, data)
 }
 
 func unprotectPrivateKey(data []byte) ([]byte, error) {
-	return dpapiTransform(cryptUnprotectData, data)
+	// Scope is selected when protecting, not through unprotect flags.
+	return dpapiTransform(cryptUnprotectData, cryptProtectUIForbidden, data)
 }
 
-func dpapiTransform(proc *windows.LazyProc, data []byte) ([]byte, error) {
+func dpapiTransform(proc *windows.LazyProc, flags uint32, data []byte) ([]byte, error) {
 	if len(data) == 0 {
 		return nil, fmt.Errorf("cannot protect empty data")
 	}
@@ -41,13 +50,15 @@ func dpapiTransform(proc *windows.LazyProc, data []byte) ([]byte, error) {
 	ret, _, callErr := proc.Call(
 		uintptr(unsafe.Pointer(&in)),
 		0, 0, 0, 0,
-		cryptProtectUIForbidden,
+		uintptr(flags),
 		uintptr(unsafe.Pointer(&out)),
 	)
+	runtime.KeepAlive(data)
 	if ret == 0 {
 		return nil, fmt.Errorf("DPAPI call failed: %w", callErr)
 	}
 	defer localFree.Call(uintptr(unsafe.Pointer(out.pbData)))
+	defer clear(unsafe.Slice(out.pbData, out.cbData))
 	result := make([]byte, out.cbData)
 	copy(result, unsafe.Slice(out.pbData, out.cbData))
 	return result, nil

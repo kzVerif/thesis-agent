@@ -272,6 +272,7 @@ func TestPowerRoutingWithExistingFeatures(t *testing.T) {
 	defer cancel()
 	url, connections := localWebSocket(t)
 	c := New(url, 20*time.Millisecond, time.Hour, time.Second)
+	configureTestAuth(c)
 	controller := &fakePowerController{}
 	c.ConfigurePower(controller)
 	c.scanManager = antivirus.NewManager(func(context.Context, antivirus.Command) (antivirus.Report, error) {
@@ -311,6 +312,9 @@ func TestPowerRoutingWithExistingFeatures(t *testing.T) {
 		t.Fatal(ctx.Err())
 	}
 	defer server.CloseNow()
+	if !acceptTestAuth(t, ctx, server) {
+		t.Fatal("authentication failed")
+	}
 	if result := readPowerTestJSON(t, ctx, server); result["type"] != "registration" {
 		t.Fatalf("registration changed: %#v", result)
 	}

@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 
+	"ws-agent/internal/retry"
+	"ws-agent/internal/transportpolicy"
 	"ws-agent/model"
 )
 
@@ -41,26 +43,65 @@ func EnsureRegistered(ctx context.Context, apiBaseURL string) (model.SystemInfo,
 		return model.SystemInfo{}, err
 	}
 
-	info := getSystemInfoForAgent(config.AgentID)
-	status, err := agentExists(ctx, apiBaseURL, config.AgentID)
+	return EnsureEnrollment(ctx, apiBaseURL, config, "enrollment_state.json", true)
+}
+
+// EnsureEnrollment reuses the existing REST contract. A historical marker never
+// bypasses the server existence check, and unattended mode never reads stdin.
+func EnsureEnrollment(ctx context.Context, apiBaseURL string, identity AgentConfig, markerPath string, interactive bool) (model.SystemInfo, error) {
+	verified, err := ReadEnrollment(markerPath, identity, apiBaseURL)
 	if err != nil {
 		return model.SystemInfo{}, err
 	}
-	if status == http.StatusNoContent {
-		log.Printf("registration: agent_id=%s already exists; skipping enrollment", info.ID)
+	log.Printf("verifying enrollment; previously_verified=%t", verified)
+	backoff := retry.New()
+	for {
+		if err := ctx.Err(); err != nil {
+			return model.SystemInfo{}, err
+		}
+		status, err := agentExists(ctx, apiBaseURL, identity.AgentID)
+		if err != nil {
+			var temporary *temporaryAPIError
+			if interactive || !errors.As(err, &temporary) {
+				return model.SystemInfo{}, err
+			}
+			delay := backoff.Next()
+			log.Printf("API unavailable (%s); enrollment verification pending; retry scheduled in %s", temporary.Error(), delay)
+			if err := retry.Wait(ctx, delay); err != nil {
+				return model.SystemInfo{}, err
+			}
+			continue
+		}
+		info := getSystemInfoForAgent(identity.AgentID)
+		if status == http.StatusNotFound {
+			if err := WriteEnrollment(markerPath, identity, apiBaseURL, false); err != nil {
+				return model.SystemInfo{}, err
+			}
+			if !interactive {
+				return model.SystemInfo{}, fmt.Errorf("agent is not enrolled on configured server; administrative provisioning required")
+			}
+			stop := context.AfterFunc(ctx, func() { _ = os.Stdin.Close() })
+			token, err := readRegistrationToken()
+			stop()
+			if err != nil {
+				return model.SystemInfo{}, err
+			}
+			if err := registerAgent(ctx, apiBaseURL, token, identity, info); err != nil {
+				return model.SystemInfo{}, err
+			}
+		}
+		if err := WriteEnrollment(markerPath, identity, apiBaseURL, true); err != nil {
+			return model.SystemInfo{}, err
+		}
+		log.Printf("enrollment verified")
 		return info, nil
 	}
-
-	token, err := readRegistrationToken()
-	if err != nil {
-		return model.SystemInfo{}, err
-	}
-	if err := registerAgent(ctx, apiBaseURL, token, config, info); err != nil {
-		return model.SystemInfo{}, err
-	}
-	log.Printf("registration: agent_id=%s enrolled successfully", info.ID)
-	return info, nil
 }
+
+type temporaryAPIError struct{ cause error }
+
+func (e *temporaryAPIError) Error() string { return transportpolicy.FailureKind(e.cause) }
+func (e *temporaryAPIError) Unwrap() error { return e.cause }
 
 func agentExists(ctx context.Context, apiBaseURL, agentID string) (int, error) {
 	endpoint := strings.TrimRight(apiBaseURL, "/") + "/api/agents/" + url.PathEscape(agentID) + "/exists"
@@ -68,16 +109,22 @@ func agentExists(ctx context.Context, apiBaseURL, agentID string) (int, error) {
 	if err != nil {
 		return 0, fmt.Errorf("build agent existence request: %w", err)
 	}
-	response, err := (&http.Client{Timeout: 15 * time.Second}).Do(request)
+	response, err := transportpolicy.NewClient(15 * time.Second).Do(request)
 	if err != nil {
-		return 0, fmt.Errorf("check agent existence: %w", err)
+		if ctx.Err() != nil {
+			return 0, ctx.Err()
+		}
+		return 0, &temporaryAPIError{cause: err}
 	}
 	defer response.Body.Close()
-	_, _ = io.Copy(io.Discard, response.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(response.Body, 1<<20))
 	if response.StatusCode == http.StatusNoContent || response.StatusCode == http.StatusNotFound {
 		return response.StatusCode, nil
 	}
-	return 0, fmt.Errorf("check agent existence: unexpected HTTP status %s", response.Status)
+	if response.StatusCode == 408 || response.StatusCode == 429 || response.StatusCode >= 500 {
+		return 0, &temporaryAPIError{}
+	}
+	return 0, fmt.Errorf("check agent existence: HTTP %d; check service configuration", response.StatusCode)
 }
 
 func readRegistrationToken() (string, error) {
@@ -113,23 +160,21 @@ func registerAgent(ctx context.Context, apiBaseURL, token string, config AgentCo
 		return fmt.Errorf("build registration request: %w", err)
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := (&http.Client{Timeout: 20 * time.Second}).Do(request)
+	response, err := transportpolicy.NewClient(20 * time.Second).Do(request)
 	if err != nil {
-		return fmt.Errorf("register agent: %w", err)
+		return fmt.Errorf("registration request failed (%s); verify enrollment with the existing identity before retrying", transportpolicy.FailureKind(err))
 	}
 	defer response.Body.Close()
 	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		// Never log the token or private key. The server body is retained only to
-		// give developers the API error while debugging enrollment failures.
-		return fmt.Errorf("register agent: HTTP %s: %s", response.Status, strings.TrimSpace(string(responseBody)))
+		return fmt.Errorf("register agent: HTTP %d; check token validity, quota and existing registration", response.StatusCode)
 	}
 	var result registerResponse
 	if err := json.Unmarshal(responseBody, &result); err != nil {
 		return fmt.Errorf("decode registration response: %w", err)
 	}
-	if result.ID == "" {
-		return errors.New("register agent: response did not contain id")
+	if result.ID != config.AgentID {
+		return errors.New("register agent: response identity does not match; administrator verification required")
 	}
 	return nil
 }
