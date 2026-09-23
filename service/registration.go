@@ -166,6 +166,13 @@ func registerAgent(ctx context.Context, apiBaseURL, token string, config AgentCo
 	}
 	defer response.Body.Close()
 	responseBody, _ := io.ReadAll(io.LimitReader(response.Body, 1<<20))
+	if registerResponseDebugEnabled() {
+		body := strings.TrimSpace(string(responseBody))
+		if len(body) > 16<<10 {
+			body = body[:16<<10] + "...[truncated]"
+		}
+		log.Printf("DEBUG register response: status=%d content_type=%q body=%q", response.StatusCode, response.Header.Get("Content-Type"), body)
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("register agent: HTTP %d; check token validity, quota and existing registration", response.StatusCode)
 	}
@@ -177,6 +184,11 @@ func registerAgent(ctx context.Context, apiBaseURL, token string, config AgentCo
 		return errors.New("register agent: response identity does not match; administrator verification required")
 	}
 	return nil
+}
+
+func registerResponseDebugEnabled() bool {
+	value := strings.ToLower(strings.TrimSpace(os.Getenv("AGENT_DEBUG_REGISTER_RESPONSE")))
+	return value == "1" || value == "true" || value == "yes"
 }
 
 func getSystemInfoForAgent(agentID string) model.SystemInfo {
