@@ -15,6 +15,7 @@ import (
 	"ws-agent/config"
 	"ws-agent/download"
 	"ws-agent/internal/apppaths"
+	"ws-agent/internal/desktopcapture"
 	"ws-agent/internal/runlock"
 	"ws-agent/internal/transportpolicy"
 	"ws-agent/service"
@@ -175,10 +176,14 @@ func runWithPaths(ctx context.Context, options Options, paths apppaths.Paths, re
 		}
 		return err
 	}
-	var capture client.ScreenCapture = service.CaptureScreenJPEG
+	var capture client.ScreenCapture
 	if options.Service {
-		capture = nil
-		log.Printf("Service mode: interactive screen capture unavailable in Session 0; console capture remains supported")
+		helper := desktopcapture.New()
+		defer helper.Close()
+		capture = helper.CaptureScreenJPEG
+		log.Printf("Service mode: screen capture delegated to the interactive Desktop Helper")
+	} else {
+		capture = service.CaptureScreenJPEG
 	}
 	return wsClient.Run(ctx, info, func() (any, error) { return service.GetPerformanceInfo() }, func() (any, error) { return service.GetProcessList() }, service.KillProcess, capture)
 }
