@@ -20,40 +20,42 @@ Service ยังคงเป็นโปรแกรมเดียวที่
 identity/private key ส่วน Desktop Helper ไม่มี credential ของ server และมีหน้าที่
 รับคำขอจับภาพผ่าน Named Pipe แล้วส่ง JPEG กลับมาเท่านั้น
 
-## การ build
+## การอัปเดต executable
 
-รันจาก root ของ repository:
+นำ executable ที่ build เรียบร้อยแล้วมาวางไว้ในโฟลเดอร์ `build`:
 
-```powershell
-go build -o build/thesis-agent.exe .
-go build -o build/thesis-agent-desktop.exe ./cmd/thesis-agent-desktop
+```text
+build/thesis-agent.exe
+build/thesis-agent-desktop.exe
 ```
 
-หรือใช้ไฟล์สำหรับอัปเดตทั้งหมด:
+จากนั้นใช้ไฟล์สำหรับอัปเดต:
 
 ```text
 update-agent.bat
 ```
 
-ไฟล์นี้ต้องรันด้วย **Run as administrator** และจะทำสิ่งต่อไปนี้:
+ไฟล์นี้ต้องรันด้วย **Run as administrator** และจะทำสิ่งต่อไปนี้ โดยไม่เรียก
+คำสั่ง build หรือ compile:
 
-1. หยุด Windows Service
-2. หยุด Desktop Helper ที่กำลังทำงาน
-3. build Service และ Desktop Helper ใหม่
+1. ตรวจสอบ executable ใหม่
+2. หยุด Windows Service
+3. หยุด Desktop Helper ที่กำลังทำงาน
 4. ติดตั้ง Service executable ใหม่
 5. ใช้ identity และ configuration เดิม
-6. เริ่ม Service และ Desktop Helper task กลับมา
+6. เริ่ม Desktop Helper task กลับมา
 
 ## การทดสอบแบบเปิดเอง
 
-หลัง build แล้ว ให้เปิด Desktop Helper ใน user session ที่ต้องการจับภาพ:
+หลังวาง executable แล้ว ให้เปิด Desktop Helper ใน user session ที่ต้องการจับภาพ
+แบบ background:
 
 ```powershell
 .\run-desktop-helper.bat
 ```
 
-ต้องเปิดหน้าต่างนี้ค้างไว้ระหว่างทดสอบ หากปิดหน้าต่าง Desktop Helper แล้ว Service
-จะยังทำงานต่อ แต่การจับภาพจะไม่พร้อมใช้งาน
+คำสั่งนี้จะเรียกผ่าน `wscript.exe` และไม่เปิดหน้าต่าง Command Prompt ค้างไว้ หาก
+ปิด Desktop Helper แล้ว Service จะยังทำงานต่อ แต่การจับภาพจะไม่พร้อมใช้งาน
 
 ## เริ่มอัตโนมัติตอน login
 
@@ -65,6 +67,10 @@ update-agent.bat
 
 Task จะตั้งเป็น `At log on` และ `Run only when user is logged on` เพื่อให้ Helper
 ทำงานใน desktop session ที่ถูกต้อง ไม่ใช่ Session 0
+
+การเริ่มผ่าน Task Scheduler ใช้ `wscript.exe` เป็นตัว launcher แบบซ่อนหน้าต่าง
+ดังนั้นจะไม่มีหน้าต่าง Command Prompt แสดงขึ้นมา และ Desktop Helper จะทำงานอยู่
+เบื้องหลัง
 
 ยกเลิก task:
 
