@@ -1,146 +1,150 @@
-# Windows Service lifecycle (development provisioning)
+<a id="windows-service-lifecycle-development-provisioning"></a>
 
-**Phase 5B.1:** Service startup inspects fixed critical-state/container ACLs before opening state and
-repairs only trusted drift under the runtime lock. Administrative `-Action Repair`
-uses the same unsafe refusal policy, without a force option. See
-[runtime ACL security](runtime-acl-security.md) for startup order, diagnostics,
-Event Log fallback, TOCTOU limits and verification status.
-Historical downloads and rotated logs are not recursively inspected at startup;
-file count no longer imposes a startup gate. Service dynamic I/O checks the exact
-objects used by logging/rotation and download creation/checksum/publish/cleanup.
+# วงจรการทำงานของ Windows Service และการเตรียมติดตั้งสำหรับพัฒนา
 
-**Phase 4 update:** Agent WebSocket now requires Ed25519 proof before normal
-traffic. Service startup still accepts legacy identity, but authenticated
-connectivity requires the explicit Phase 2 migration. See
-[Agent authentication](agent-authentication.md) for current sequencing and rollout.
-Historical protocol/scope statements below describe the original Service phase.
+**Phase 5B.1:** ก่อนเปิดไฟล์สถานะ Service ตรวจ ACL ของสถานะสำคัญและไดเรกทอรีขอบเขตตามรายการคงที่
+ซ่อมเฉพาะความคลาดเคลื่อนที่เชื่อถือได้ขณะถือ runtime lock ส่วน `-Action Repair` ของผู้ดูแล
+ใช้เกณฑ์ปฏิเสธสถานะไม่ปลอดภัยเดียวกันและไม่มีตัวเลือก force ดู [ความปลอดภัย ACL ของรันไทม์](runtime-acl-security.md)
+สำหรับลำดับ startup การวินิจฉัย Event Log สำรอง ข้อจำกัด TOCTOU และสถานะการตรวจสอบ
+ไม่ตรวจไฟล์ดาวน์โหลดเก่าหรือล็อกที่หมุนเก็บแล้วแบบเวียนซ้ำตอนเริ่มทำงาน
+จำนวนไฟล์จึงไม่ใช่เงื่อนไขกั้น startup อีกต่อไป I/O ระหว่างใช้งานของ Service ตรวจเฉพาะวัตถุที่ใช้จริง
+ในการเปิด/หมุนล็อก และสร้าง/ตรวจ checksum/เผยแพร่/เก็บกวาดไฟล์ดาวน์โหลด
 
-This is development/admin tooling for an authorized managed lab. It is not a release installer.
-Only thesis-agent is changed. The existing REST and WebSocket contracts are retained.
+**การปรับปรุงใน Phase 4:** Agent WebSocket ต้องใช้หลักฐาน Ed25519 ก่อนรับส่งข้อมูลปกติแล้ว
+Service ยังเริ่มทำงานด้วยข้อมูลประจำตัวรูปแบบเก่าได้ แต่การเชื่อมต่อที่ยืนยันตัวตนต้องผ่าน
+การย้ายรูปแบบใน Phase 2 อย่างชัดเจน ดู [การยืนยันตัวตนของ Agent](agent-authentication.md)
+สำหรับลำดับปัจจุบันและการนำไปใช้ ข้อความเกี่ยวกับโพรโทคอล/ขอบเขตในอดีตด้านล่างอธิบายระยะ Service เดิม
 
-Current results: [verification report](windows-service-verification.md).
-Exact remaining manual procedures: [Windows acceptance](windows-service-acceptance.md).
+นี่คือเครื่องมือสำหรับการพัฒนา/ผู้ดูแลในห้องปฏิบัติการที่ได้รับอนุญาตให้จัดการ ไม่ใช่ตัวติดตั้งสำหรับเผยแพร่จริง
+เปลี่ยนเฉพาะ thesis-agent โดยคงข้อกำหนด REST และ WebSocket เดิม
 
-## Architecture and launch modes
+ผลปัจจุบัน: [รายงานการตรวจสอบ](windows-service-verification.md)
+ขั้นตอนตรวจด้วยตนเองที่ยังเหลือ: [การทดสอบยอมรับบน Windows](windows-service-acceptance.md)
 
-main selects console, administrative provisioning, or the native SCM host.
-internal/agent owns one shared runtime. internal/apppaths resolves explicit paths;
-internal/retry supplies equal-jitter exponential backoff. The existing service/
-providers, client/, download/, and antivirus/ implementations remain in use.
+<a id="architecture-and-launch-modes"></a>
 
-- `go run .`: attached console, Ctrl+C/SIGTERM where supported, interactive
-  enrollment when needed, and both terminal and rotating file logs.
-- `--provision`: elevated, interactive enrollment using machine paths, then exit.
-- `--migrate-identity ABSOLUTE_PATH`: only with provisioning; copy existing bytes.
-- `--migrate-private-key-protection`: separate elevated operation; stopped Service,
-  existing protected runtime identity and original decrypting user context required.
-- `--verify-private-key`: stopped-Service maintenance check; no network or file changes
-  to identity. See [private-key protection](private-key-protection.md).
-- `--service`: SCM only; no stdin or terminal. Normal SCM auto-detection also works.
-- `--service-info`: read-only JSON containing names/paths for development tooling.
-- `--configure-service`: elevated development helper used by the script, allowed
-  only from the installed Program Files executable. It configures SCM, not files.
+## สถาปัตยกรรมและโหมดเริ่มทำงาน
 
-The previous automatic DetachConsole call is removed from the launch path.
-Its platform helpers are retained as contributor code, but no current mode calls
-FreeConsole. Existing InitLogging file support is extended, not replaced.
+main เลือกโหมด Console การเตรียมติดตั้งโดยผู้ดูแล หรือโฮสต์ SCM ของ Windows
+internal/agent ดูแลรันไทม์ร่วมเพียงชุดเดียว internal/apppaths หาพาธที่ชัดเจน
+ส่วน internal/retry ให้การหน่วงลองใหม่แบบทวีคูณพร้อมสุ่มช่วง equal-jitter
+ยังใช้ส่วนทำงานเดิมใน service/, client/, download/ และ antivirus/
 
-## Paths and configuration
+- `go run .`: ผูกกับ Console รองรับ Ctrl+C/SIGTERM บนระบบที่รองรับ
+  ลงทะเบียนแบบโต้ตอบเมื่อจำเป็น และเขียนล็อกทั้งเทอร์มินัลกับไฟล์ที่หมุนเก็บ
+- `--provision`: ใช้สิทธิ์ elevated ลงทะเบียนแบบโต้ตอบผ่านพาธของเครื่อง แล้วจบการทำงาน
+- `--migrate-identity ABSOLUTE_PATH`: ใช้กับการเตรียมติดตั้งเท่านั้น คัดลอกไบต์เดิม
+- `--migrate-private-key-protection`: คำสั่งแยกที่ใช้สิทธิ์ elevated ต้องหยุด Service
+  มีข้อมูลประจำตัวในรันไทม์ที่ป้องกันไว้ และใช้บริบทผู้ใช้เดิมที่ถอดรหัสได้
+- `--verify-private-key`: ตรวจบำรุงรักษาขณะ Service หยุด ไม่ใช้เครือข่ายหรือเปลี่ยนไฟล์ข้อมูลประจำตัว
+  ดู [การป้องกันกุญแจส่วนตัว](private-key-protection.md)
+- `--service`: ใช้ผ่าน SCM เท่านั้น ไม่มี stdin หรือเทอร์มินัล รองรับการตรวจพบ SCM อัตโนมัติตามปกติด้วย
+- `--service-info`: คืน JSON ชื่อ/พาธแบบอ่านอย่างเดียวสำหรับเครื่องมือพัฒนา
+- `--configure-service`: ตัวช่วยพัฒนาที่สคริปต์เรียกด้วยสิทธิ์ elevated อนุญาตเฉพาะ executable
+  ที่ติดตั้งใน Program Files ทำหน้าที่ตั้งค่า SCM ไม่จัดการไฟล์
 
-The centralized name is `ThesisAgentDev`. Windows Known Folder APIs resolve roots
-without assuming the system drive is C:.
+เอาการเรียก DetachConsole อัตโนมัติเดิมออกจากเส้นทางเริ่มโปรแกรมแล้ว
+ยังเก็บฟังก์ชันช่วยแต่ละแพลตฟอร์มไว้เป็นโค้ดของผู้ร่วมพัฒนา แต่ไม่มีโหมดปัจจุบันเรียก FreeConsole
+ขยายความสามารถบันทึกไฟล์ของ InitLogging เดิม ไม่ได้แทนที่ระบบนั้น
 
-| Item | Machine location |
+<a id="paths-and-configuration"></a>
+
+## พาธและการตั้งค่า
+
+ชื่อกลางคือ `ThesisAgentDev` ใช้ Windows Known Folder APIs หาพาธราก
+โดยไม่สมมติว่าไดรฟ์ระบบต้องเป็น C:
+
+| รายการ | ตำแหน่งบนเครื่อง |
 | --- | --- |
-| Executable | %ProgramFiles%\ThesisAgentDev\thesis-agent.exe |
-| Identity | %ProgramData%\ThesisAgentDev\agent_config.json |
-| Enrollment history | %ProgramData%\ThesisAgentDev\enrollment_state.json |
-| Configuration | %ProgramData%\ThesisAgentDev\.env |
-| Logs | %ProgramData%\ThesisAgentDev\logs\agent.log |
-| Downloads | %ProgramData%\ThesisAgentDev\data\downloads |
-| Runtime lock | %ProgramData%\ThesisAgentDev\.runtime.lock |
+| ไฟล์โปรแกรม | %ProgramFiles%\ThesisAgentDev\thesis-agent.exe |
+| ข้อมูลประจำตัว | %ProgramData%\ThesisAgentDev\agent_config.json |
+| ประวัติการลงทะเบียน | %ProgramData%\ThesisAgentDev\enrollment_state.json |
+| การตั้งค่า | %ProgramData%\ThesisAgentDev\.env |
+| ล็อก | %ProgramData%\ThesisAgentDev\logs\agent.log |
+| ไฟล์ดาวน์โหลด | %ProgramData%\ThesisAgentDev\data\downloads |
+| ล็อกรันไทม์ | %ProgramData%\ThesisAgentDev\.runtime.lock |
 
-Console uses its working directory for the existing .env, identity, logs and
-data/downloads convention. Service/provisioning never loads SCM's working-directory
-.env. Relative Service log/download overrides resolve against the machine runtime
-root. Service logs must remain below logs/, and downloads below a child of data/;
-this prevents a download/log destination from overwriting critical identity/config.
+Console ใช้ไดเรกทอรีทำงานสำหรับ .env ข้อมูลประจำตัว ล็อก และ data/downloads ตามรูปแบบเดิม
+Service/การเตรียมติดตั้งไม่โหลด .env จากไดเรกทอรีทำงานของ SCM
+หากกำหนดพาธล็อก/ดาวน์โหลดของ Service แบบสัมพัทธ์ จะอ้างจากรากรันไทม์ของเครื่อง
+ล็อกต้องอยู่ใต้ logs/ และดาวน์โหลดต้องอยู่ในไดเรกทอรีย่อยของ data/
+เพื่อป้องกันปลายทางดาวน์โหลด/ล็อกเขียนทับข้อมูลประจำตัวหรือการตั้งค่าสำคัญ
 
-Precedence: process environment (SCM inherits its system environment) >
-the selected .env > existing defaults. Administrative provisioning and SCM can
-inherit different environments; use the persistent .env and check conflicting
-system variables. Service environment changes may require restarting Windows.
+ลำดับความสำคัญ: ตัวแปรสภาพแวดล้อมของโปรเซส (SCM รับจากสภาพแวดล้อมระบบ) >
+.env ที่เลือก > ค่าเริ่มต้นเดิม การเตรียมติดตั้งโดยผู้ดูแลกับ SCM อาจรับสภาพแวดล้อมต่างกัน
+จึงควรใช้ .env ที่บันทึกถาวรและตรวจตัวแปรระบบที่ขัดกัน
+การเปลี่ยนสภาพแวดล้อมของ Service อาจต้องเริ่ม Windows ใหม่
 
-Preserved settings include WS_SERVER_URL, AGENT_API_URL, AGENT_LOG_PATH,
-DOWNLOAD_DIRECTORY, MAX_CONCURRENT_DOWNLOADS, DOWNLOAD_QUEUE_SIZE,
-MAX_DOWNLOAD_SIZE_BYTES, ALLOW_LOCAL_HTTP_DOWNLOADS, and POWER_MODE.
-Power defaults to real shutdown as before. Use POWER_MODE=mock on development
-machines while exercising connection/lifecycle behavior.
+คงการตั้งค่า WS_SERVER_URL, AGENT_API_URL, AGENT_LOG_PATH, DOWNLOAD_DIRECTORY,
+MAX_CONCURRENT_DOWNLOADS, DOWNLOAD_QUEUE_SIZE, MAX_DOWNLOAD_SIZE_BYTES,
+ALLOW_LOCAL_HTTP_DOWNLOADS และ POWER_MODE
+คำสั่งพลังงานมีค่าเริ่มต้นเป็นการปิดเครื่องจริงตามเดิม ให้ใช้ POWER_MODE=mock บนเครื่องพัฒนา
+เมื่อทดสอบการเชื่อมต่อและวงจรการทำงาน
 
-## Identity and enrollment
+<a id="identity-and-enrollment"></a>
 
-Identity and enrollment are separate. A file existing does not prove a successful
-registration. Identity validation checks JSON, UUID, Ed25519 algorithm, public-key
-base64/size, and nonempty base64 ciphertext. It does not decrypt DPAPI, authenticate
-ciphertext, or prove the two key fields form a pair.
+## ข้อมูลประจำตัวและการลงทะเบียน
 
-Phase 2 keeps that structural startup path. Legacy identities continue to run
-existing features with a migration notice; Service startup never decrypts or
-silently migrates keys. Unknown protection versions fail closed.
-The separate `service.LoadPrivateKey` requires machine protection and validates
-the decrypted key against its seed and stored public key.
-New Service provisioning uses `dpapi-machine-v1` in the existing protected directory.
-New console identities retain user-scope DPAPI; they must be explicitly migrated
-after import before future Service private-key use.
+ข้อมูลประจำตัวกับสถานะลงทะเบียนแยกจากกัน การมีไฟล์ไม่ได้พิสูจน์ว่าลงทะเบียนสำเร็จ
+การตรวจข้อมูลประจำตัวตรวจ JSON, UUID, อัลกอริทึม Ed25519, base64/ขนาดกุญแจสาธารณะ
+และข้อมูลเข้ารหัสแบบ base64 ที่ไม่ว่าง ไม่ถอดรหัส DPAPI ไม่ตรวจความแท้ของข้อมูลเข้ารหัส
+และไม่พิสูจน์ว่ากุญแจสองฟิลด์เป็นคู่กัน
 
-Existing partial/corrupt identities fail closed, without automatic replacement.
-Only an explicitly interactive first provisioning may create a missing identity.
-Service cannot create an identity, request tokens, or silently repair keys.
+Phase 2 คงขั้นตอนตรวจโครงสร้างตอน startup นี้ ข้อมูลประจำตัวรูปแบบเก่ายังใช้ฟีเจอร์เดิมได้
+พร้อมข้อความแจ้งให้ย้ายรูปแบบ Service startup ไม่ถอดรหัสหรือย้ายกุญแจอย่างเงียบ ๆ
+หากไม่รู้จักรุ่นการป้องกันจะปฏิเสธการทำงาน
+ส่วน `service.LoadPrivateKey` ที่แยกออกมาต้องใช้การป้องกันระดับเครื่อง
+และตรวจว่ากุญแจที่ถอดรหัสตรงกับ seed และกุญแจสาธารณะที่เก็บไว้
+การเตรียมข้อมูลประจำตัวใหม่ของ Service ใช้ `dpapi-machine-v1` ในไดเรกทอรีที่ป้องกันไว้เดิม
+ข้อมูลประจำตัวใหม่ของ Console ยังใช้ DPAPI ระดับผู้ใช้
+หลังนำเข้าต้องย้ายรูปแบบอย่างชัดเจนก่อนใช้กุญแจส่วนตัวใน Service
 
-Migration takes an explicit absolute source path during provisioning. The script
-requires either an existing source, an existing destination, or an explicit
--NewIdentity choice for a genuinely new installation. It does not automatically
-select the tracked repository identity. Migration validates both existing files,
-copies source bytes (including unknown JSON fields), retains the source, and
-never overwrites the destination. A different identity/key at the destination
-fails. An equal identity already there remains authoritative.
+ข้อมูลประจำตัวเดิมที่ไม่ครบ/เสียหายทำให้ปฏิเสธการทำงาน โดยไม่สร้างแทนที่อัตโนมัติ
+เฉพาะการเตรียมติดตั้งครั้งแรกแบบโต้ตอบอย่างชัดเจนเท่านั้นที่สร้างข้อมูลประจำตัวเมื่อยังไม่มีได้
+Service ไม่สามารถสร้างข้อมูลประจำตัว ขอรับโทเคน หรือซ่อมกุญแจอย่างเงียบ ๆ
 
-Complete new files are flushed and published in the same directory. Identity
-creation/migration uses an exclusive hard link publication on NTFS to prevent a
-race overwriting an existing destination. Enrollment state uses atomic replacement.
-An OS byte/file lock prevents concurrent runtimes or provisioning commands from
-writing the same installation; it releases on process exit/crash. The empty lock
-file can remain on disk and is not an indication that the process is running.
+การย้ายข้อมูลประจำตัวรับพาธต้นทางแบบเต็มอย่างชัดเจนระหว่างเตรียมติดตั้ง
+สคริปต์กำหนดให้มีต้นทางเดิม ปลายทางเดิม หรือเลือก -NewIdentity อย่างชัดเจนสำหรับการติดตั้งใหม่จริง
+ไม่เลือกข้อมูลประจำตัวที่อยู่ใน Git ของ repository โดยอัตโนมัติ
+การย้ายตรวจทั้งสองไฟล์ที่มีอยู่ คัดลอกไบต์ต้นทางรวมถึงฟิลด์ JSON ที่ไม่รู้จัก เก็บต้นทางไว้
+และไม่เขียนทับปลายทาง หากปลายทางมีข้อมูลประจำตัว/กุญแจต่างกันจะล้มเหลว
+หากมีข้อมูลประจำตัวตรงกันอยู่แล้ว ให้ถือปลายทางนั้นเป็นข้อมูลหลัก
 
-The marker records Agent ID, SHA-256 public-key fingerprint, configured API, and
-historical verification. It is protected by the runtime directory ACL. It is not
-authentication and never bypasses the REST existence check.
+ไฟล์ใหม่ที่ครบถ้วนจะถูก flush และเผยแพร่ในไดเรกทอรีเดียวกัน
+การสร้าง/ย้ายข้อมูลประจำตัวเผยแพร่ด้วย hard link แบบไม่ทับของเดิมบน NTFS
+เพื่อกันการแข่งขันที่อาจเขียนทับปลายทาง ส่วนสถานะลงทะเบียนใช้การแทนที่แบบ atomic
+byte/file lock ของระบบปฏิบัติการป้องกันหลายรันไทม์หรือหลายคำสั่งเตรียมติดตั้งเขียนการติดตั้งเดียวกันพร้อมกัน
+ล็อกปล่อยเมื่อโปรเซสจบ/ล่ม ไฟล์ล็อกว่างอาจคงอยู่บนดิสก์ และไม่ได้บ่งชี้ว่าโปรเซสยังทำงาน
 
-| State / response | Service behavior |
+ไฟล์บันทึกสถานะเก็บ Agent ID, ลายนิ้วมือ SHA-256 ของกุญแจสาธารณะ, API ที่ตั้งค่าไว้
+และผลตรวจสอบในอดีต ป้องกันด้วย ACL ของไดเรกทอรีรันไทม์
+ไฟล์นี้ไม่ใช่หลักฐานยืนยันตัวตนและไม่ใช้ข้ามการตรวจว่ามี Agent อยู่ผ่าน REST
+
+| สถานะ / การตอบกลับ | พฤติกรรมของ Service |
 | --- | --- |
-| Missing or corrupt identity | Stop with provisioning/config error; no new identity |
-| Identity valid, marker absent/mismatched | Unknown; verify through existing endpoint |
-| /exists returns 204 | Persist matching marker; connect WebSocket |
-| /exists returns 404, even with old marker | Mark unverified; stop; administrator provisioning needed |
-| Network failure, 408, 429, 5xx | Stay alive and retry; no token prompt |
-| Other HTTP errors | Stop with configuration error; no blind retry |
-| Interactive /register success | Require returned ID to match; persist marker |
+| ข้อมูลประจำตัวขาดหายหรือเสียหาย | หยุดพร้อมข้อผิดพลาดการเตรียมติดตั้ง/การตั้งค่า ไม่สร้างข้อมูลประจำตัวใหม่ |
+| ข้อมูลประจำตัวถูกต้อง แต่ไฟล์สถานะไม่มี/ไม่ตรง | ถือว่ายังไม่ทราบ ต้องตรวจผ่านปลายทางเดิม |
+| /exists คืน 204 | บันทึกสถานะที่ตรงกัน แล้วเชื่อมต่อ WebSocket |
+| /exists คืน 404 แม้มีไฟล์สถานะเก่า | บันทึกว่ายังไม่ยืนยันแล้วหยุด ต้องให้ผู้ดูแลเตรียมติดตั้ง |
+| เครือข่ายผิดพลาด, 408, 429, 5xx | ทำงานต่อและลองใหม่ ไม่ถามโทเคน |
+| HTTP ผิดพลาดแบบอื่น | หยุดพร้อมข้อผิดพลาดการตั้งค่า ไม่ลองซ้ำโดยไม่แยกสาเหตุ |
+| /register แบบโต้ตอบสำเร็จ | ต้องได้ ID ตรงกัน แล้วบันทึกสถานะ |
 
-A registration request whose response is lost may already have succeeded:
-retry provisioning with the same identity so /exists decides. Never delete the
-identity or create a replacement to work around an API error.
+คำขอลงทะเบียนที่ไม่ได้รับการตอบกลับอาจสำเร็จไปแล้ว ให้ลองเตรียมติดตั้งด้วยข้อมูลประจำตัวเดิม
+เพื่อให้ /exists เป็นตัวตัดสิน ห้ามลบหรือสร้างข้อมูลประจำตัวทดแทนเพื่อหลีกเลี่ยงข้อผิดพลาด API
 
-ACL repair does not change DPAPI scope or ciphertext. New Service identities use
-machine DPAPI; existing legacy identities require explicit migration before
-authenticated WebSocket use. The authoritative private-key loader is unchanged.
+การซ่อม ACL ไม่เปลี่ยนขอบเขต DPAPI หรือข้อมูลเข้ารหัส ข้อมูลประจำตัวใหม่ของ Service ใช้ DPAPI ระดับเครื่อง
+ส่วนรูปแบบเก่าต้องย้ายอย่างชัดเจนก่อนใช้ WebSocket ที่ยืนยันตัวตน ตัวโหลดกุญแจส่วนตัวหลักไม่เปลี่ยน
 
-## Build and first installation
+<a id="build-and-first-installation"></a>
 
-Prerequisites: Windows on NTFS, Go matching go.mod, Windows PowerShell 5.1,
-an Administrator terminal for provisioning, and existing REST/WS infrastructure
-using the same Agent database. The server needs its existing public_key migration.
+## การ build และติดตั้งครั้งแรก
 
-Build from the repository (not elevated):
+สิ่งที่ต้องมี: Windows บน NTFS, Go รุ่นตรงกับ go.mod, Windows PowerShell 5.1,
+เทอร์มินัล Administrator สำหรับเตรียมติดตั้ง และระบบ REST/WS เดิมที่ใช้ฐานข้อมูล Agent ชุดเดียวกัน
+ฝั่งเซิร์ฟเวอร์ต้องมีการปรับโครงสร้างฐานข้อมูล public_key ตามเดิม
+
+Build จาก repository โดยไม่ต้องยกระดับสิทธิ์:
 
 ```powershell
 go test ./...
@@ -149,8 +153,8 @@ go build -o build/thesis-agent.exe .
 go build -o build/thesis-agent-desktop.exe ./cmd/thesis-agent-desktop
 ```
 
-Prepare a reviewed service .env in a private location outside source control.
-Example development settings (replace addresses for your infrastructure):
+เตรียม .env ของ Service ที่ตรวจทานแล้วในตำแหน่งส่วนตัวนอกระบบควบคุมเวอร์ชัน
+ตัวอย่างค่าพัฒนา (เปลี่ยนที่อยู่ให้ตรงกับระบบของคุณ):
 
 ```dotenv
 AGENT_API_URL=http://localhost:8080
@@ -158,34 +162,36 @@ WS_SERVER_URL=ws://localhost:8081/ws
 POWER_MODE=mock
 ```
 
-Do not put enrollment tokens in this file or command arguments.
-The existing token prompt is used only when /exists returns 404.
+ห้ามใส่โทเคนลงทะเบียนในไฟล์นี้หรืออาร์กิวเมนต์คำสั่ง
+ระบบใช้หน้าถามโทเคนเดิมเฉพาะเมื่อ /exists คืน 404
 
-From an elevated **Windows PowerShell 5.1** terminal in the repository:
+จากเทอร์มินัล **Windows PowerShell 5.1** แบบ Run as Administrator ใน repository:
 
 ```powershell
-# Preserve this installation's existing identity.
+# เก็บข้อมูลประจำตัวเดิมของการติดตั้งนี้ไว้
 .\scripts\dev-service.ps1 -Action Install `
   -ConfigPath 'D:\PrivateConfig\service.env' `
   -IdentityPath 'D:\ExistingAgent\agent_config.json'
 
-# Alternative: only for a genuinely new installation without an old identity.
+# อีกทางเลือก: ใช้เฉพาะการติดตั้งใหม่ที่ไม่มีข้อมูลประจำตัวเดิมจริง ๆ
 .\scripts\dev-service.ps1 -Action Install `
   -ConfigPath 'D:\PrivateConfig\service.env' -NewIdentity
 ```
 
-Choose one command, not both. Replace the example paths with your real paths.
-Do not copy the repository's tracked identity to another computer.
+เลือกเพียงคำสั่งเดียว ไม่ใช้ทั้งคู่ เปลี่ยนพาธตัวอย่างเป็นพาธจริง
+ห้ามคัดลอกข้อมูลประจำตัวที่ติดตามใน Git ของ repository ไปใช้กับเครื่องอื่น
 
-Install creates dedicated directories with ACLs, copies the development binary
-and selected config, migrates/enrolls interactively, installs an Application Event
-Log source, configures SCM, then starts the service. It refuses non-elevated use,
-unexpected directory owners, reparse points, another executable under the same
-service name, and a running service during repair/update. A failure retains
-identity; inspect the error and rerun after correction. This is not a transactional
-installer: a failed setup may leave protected directories or a stopped registration.
+Install สร้างไดเรกทอรีเฉพาะพร้อม ACL คัดลอก binary สำหรับพัฒนาและไฟล์ตั้งค่าที่เลือก
+ย้ายข้อมูล/ลงทะเบียนแบบโต้ตอบ ติดตั้งแหล่ง Application Event Log ตั้งค่า SCM แล้วเริ่ม Service
+ปฏิเสธการใช้โดยไม่ยกระดับสิทธิ์ เจ้าของไดเรกทอรีที่ไม่คาดหวัง reparse point
+executable อื่นที่ใช้ชื่อ Service เดียวกัน และ Service ที่ยังทำงานระหว่างซ่อม/อัปเดต
+เมื่อผิดพลาดจะเก็บข้อมูลประจำตัวไว้ ให้ตรวจข้อผิดพลาด แก้ไข แล้วลองใหม่
+ตัวติดตั้งนี้ไม่ใช่ธุรกรรมที่ย้อนกลับได้ทั้งชุด การติดตั้งล้มเหลวอาจเหลือไดเรกทอรีที่ป้องกันไว้
+หรือ Service ที่ลงทะเบียนแล้วแต่หยุดอยู่
 
-## Start, stop, status, repair and removal
+<a id="start-stop-status-repair-and-removal"></a>
+
+## การเริ่ม หยุด ดูสถานะ ซ่อม และถอนทะเบียน
 
 ```powershell
 .\scripts\dev-service.ps1 -Action Status
@@ -194,141 +200,144 @@ installer: a failed setup may leave protected directories or a stopped registrat
 .\scripts\dev-service.ps1 -Action Restart
 ```
 
-The script reads metadata from build/thesis-agent.exe by default. Keep that
-development build, or supply -Executable with the installed executable path.
-Status shows account, startup mode, process ID, recovery configuration, and DACL.
-Running means local runtime initialized; check the log for enrollment/connectivity.
+ค่าเริ่มต้นของสคริปต์อ่านข้อมูลกำกับจาก build/thesis-agent.exe
+ให้เก็บไฟล์ build นี้ไว้ หรือระบุ -Executable เป็นพาธโปรแกรมที่ติดตั้งแล้ว
+Status แสดงบัญชี โหมดเริ่มทำงาน รหัสโปรเซส การตั้งค่ากู้คืน และ DACL
+Running หมายถึงรันไทม์ภายในเริ่มแล้ว ต้องตรวจล็อกเพิ่มเติมเพื่อยืนยันการลงทะเบียน/เชื่อมต่อ
 
-For updates, use the existing `update-agent.bat` workflow with both prebuilt
-binaries; it preserves identity/config and restarts the Desktop Helper task.
-For ACL-only repair, explicitly stop the owned Service and run `-Action Repair`.
-Unsafe states require manual security review/recovery, not an installer ACL reset.
-Install keeps its existing provisioning semantics; ConfigPath is optional after
-initial installation. Do not use NewIdentity on an existing installation.
+การอัปเดตใช้ขั้นตอนเดิมของ `update-agent.bat` พร้อม binary ทั้งสองที่ build ไว้ล่วงหน้า
+โดยเก็บข้อมูลประจำตัว/การตั้งค่าและเริ่ม task ของ Desktop Helper ใหม่
+หากซ่อมเฉพาะ ACL ให้ผู้ดูแลหยุด Service ของระบบนี้อย่างชัดเจนแล้วใช้ `-Action Repair`
+สถานะไม่ปลอดภัยต้องให้ผู้ดูแลตรวจสอบความปลอดภัย/กู้คืนด้วยตนเอง ไม่ใช้ตัวติดตั้งรีเซ็ต ACL
+Install คงพฤติกรรมเตรียมติดตั้งเดิม หลังติดตั้งครั้งแรกไม่จำเป็นต้องระบุ ConfigPath
+ห้ามใช้ NewIdentity กับการติดตั้งเดิม
 
 ```powershell
 .\scripts\dev-service.ps1 -Action Remove
 ```
 
-Remove stops and unregisters only this Service. It deliberately preserves program
-files, runtime data, keys, logs, and Event Log source for repair/reinstall. No
-recursive data deletion or repository-history cleanup is performed.
+Remove หยุดและถอนทะเบียนเฉพาะ Service นี้ ตั้งใจเก็บไฟล์โปรแกรม ข้อมูลรันไทม์ กุญแจ ล็อก
+และแหล่ง Event Log ไว้เพื่อซ่อม/ติดตั้งใหม่ ไม่ลบข้อมูลแบบเวียนซ้ำหรือทำความสะอาดประวัติ repository
 
-## Windows permissions and service account
+<a id="windows-permissions-and-service-account"></a>
 
-The development Service runs in its own LocalSystem process. LocalSystem is highly
-privileged and chosen to preserve existing authorized process, Defender and power
-operations; revisit least privilege in the Security phase.
+## สิทธิ์ Windows และบัญชีของ Service
 
-| Object | SYSTEM / Administrators | Standard Users |
+Service สำหรับพัฒนารันในโปรเซส LocalSystem ของตนเอง LocalSystem มีสิทธิ์สูง
+เลือกใช้เพื่อรักษาการจัดการโปรเซส Defender และพลังงานที่ได้รับอนุญาตตามเดิม
+ให้ทบทวนหลักสิทธิ์เท่าที่จำเป็นในระยะ Security
+
+| วัตถุ | SYSTEM / Administrators | ผู้ใช้ทั่วไป (Standard Users) |
 | --- | --- | --- |
-| Program directory/files | Full control | Read and execute |
-| Runtime directory/state/logs/data | Full control | No granted access |
-| Service object | Full control | Query/config-read/status/interrogate only |
+| ไดเรกทอรี/ไฟล์โปรแกรม | ควบคุมทั้งหมด | อ่านและเรียกทำงาน |
+| ไดเรกทอรีรันไทม์/สถานะ/ล็อก/ข้อมูล | ควบคุมทั้งหมด | ไม่ให้สิทธิ์เข้าถึง |
+| วัตถุ Service | ควบคุมทั้งหมด | สอบถาม/อ่านการตั้งค่า/ดูสถานะ/ขอรายงานสถานะเท่านั้น |
 
-ACLs are positive allow entries; there are no broad deny entries. Inheritance is
-controlled and directory/file ownership is Administrators. SCM/process identity
-provides ordinary protection against unprivileged process termination; this is
-not a protected process, driver, Task Manager restriction, or Administrator lockout.
-Validate actual effective access and inherited machine policies manually.
+ACL ใช้รายการอนุญาต ไม่มีรายการปฏิเสธแบบครอบคลุมกว้าง
+ควบคุมการสืบทอดและกำหนดเจ้าของไดเรกทอรี/ไฟล์เป็น Administrators
+ตัวตน SCM/โปรเซสให้การป้องกันปกติจากการยุติโปรเซสโดยผู้ไม่มีสิทธิ์
+ไม่ได้ใช้ protected process, driver, การจำกัด Task Manager หรือการกีดกัน Administrator
+ต้องตรวจสิทธิ์ที่มีผลจริงและนโยบายของเครื่องที่สืบทอดมาด้วยตนเอง
 
-The scope is normal local Windows user operations. This does not add Agent
-authentication, change Dashboard authorization, or protect against administrators,
-offline disk access, kernel exploits, or security products.
+ขอบเขตนี้ครอบคลุมการกระทำปกติของผู้ใช้ Windows ภายในเครื่อง
+ไม่เพิ่มการยืนยันตัวตน Agent ไม่เปลี่ยนการอนุญาตฝั่ง Dashboard
+และไม่ป้องกันผู้ดูแลระบบ การเข้าถึงดิสก์แบบออฟไลน์ ช่องโหว่ kernel หรือผลิตภัณฑ์ความปลอดภัย
 
-## Lifecycle, recovery and retry
+<a id="lifecycle-recovery-and-retry"></a>
 
-SCM transitions StartPending -> Running -> StopPending -> Stopped.
-Running is reported after local initialization, before waiting for infrastructure.
-StartPending never waits indefinitely for enrollment/API/WS availability.
+## วงจรการทำงาน การกู้คืน และการลองใหม่
 
-API and WebSocket use independent equal-jitter backoff windows: 1, 2, 4, 8, 16,
-30 seconds, with actual waits in [window/2, window]. The cap includes jitter.
-WebSocket backoff resets only after a connection lasting at least 30 seconds;
-a successful TCP upgrade immediately rejected by the server does not reset it.
-No local listener or per-Agent server port is introduced.
+SCM เปลี่ยนสถานะ StartPending -> Running -> StopPending -> Stopped
+รายงาน Running หลังเตรียมระบบภายในเสร็จ ก่อนรอระบบภายนอก
+StartPending ไม่รอการลงทะเบียน/API/WS อย่างไม่มีกำหนด
 
-Stop/Shutdown cancels contexts and reconnect waits, closes sockets, joins connection
-workers, cancels downloads/scans, and cancels accepted delayed power operations.
-Network disconnect alone retains accepted power work as before. HTTP idle
-connections are closed. Native providers may block inside OS calls; the SCM host
-has a final 20-second shutdown bound, reports a diagnostic, and exits the dedicated
-service process if cooperative shutdown cannot complete. That is a fallback,
-not the normal stop path. Local initialization also has a 30-second host bound.
+API และ WebSocket ใช้ช่วงหน่วง equal-jitter แยกกัน: 1, 2, 4, 8, 16, 30 วินาที
+เวลารอจริงอยู่ในช่วง [window/2, window] และเพดานรวมเวลาสุ่มแล้ว
+WebSocket รีเซ็ตช่วงหน่วงเฉพาะหลังเชื่อมต่อได้นานอย่างน้อย 30 วินาที
+การอัปเกรด TCP สำเร็จแล้วถูกเซิร์ฟเวอร์ปฏิเสธทันทีไม่ทำให้รีเซ็ต
+ไม่เพิ่มตัวรอรับการเชื่อมต่อในเครื่องหรือพอร์ตเซิร์ฟเวอร์แยกต่อ Agent
 
-Recovery: first unexpected crash restarts after 5 seconds; second after 30 seconds;
-subsequent failures take no action. Failure count reset is 24 hours without failures.
-Non-crash failures do not trigger recovery. An intentional Stop, invalid identity,
-404, or configuration failure therefore does not enter an automatic restart loop.
-After repairing such an error, an Administrator must Start the service.
+Stop/Shutdown ยกเลิก context และการรอเชื่อมต่อใหม่ ปิด socket รอ worker การเชื่อมต่อจบ
+ยกเลิกดาวน์โหลด/สแกน และยกเลิกคำสั่งพลังงานแบบหน่วงเวลาที่รับไว้
+เครือข่ายหลุดอย่างเดียวยังคงคำสั่งพลังงานที่รับไว้ตามเดิม ปิดการเชื่อมต่อ HTTP ที่ว่าง
+ส่วนทำงานที่เรียก OS โดยตรงอาจค้างในคำสั่งระบบได้ โฮสต์ SCM จึงมีขีดจำกัดการหยุดขั้นสุดท้าย 20 วินาที
+เมื่อหยุดตามขั้นตอนไม่สำเร็จจะรายงานข้อความวินิจฉัยแล้วออกจากโปรเซส Service เฉพาะนี้
+เป็นทางสำรอง ไม่ใช่เส้นทางหยุดปกติ การเตรียมระบบภายในมีขีดจำกัดจากโฮสต์ 30 วินาทีด้วย
 
-These settings use native SCM recovery semantics:
-[Microsoft failure-action flags](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_failure_actions_flag)
-and [Service access rights](https://learn.microsoft.com/en-us/windows/win32/services/service-security-and-access-rights).
+การกู้คืน: ล่มโดยไม่คาดคิดครั้งแรกเริ่มใหม่หลัง 5 วินาที ครั้งที่สองหลัง 30 วินาที
+ครั้งถัดไปไม่ดำเนินการ รีเซ็ตจำนวนความล้มเหลวเมื่อไม่มีความล้มเหลวครบ 24 ชั่วโมง
+ข้อผิดพลาดที่ไม่ใช่โปรเซสล่มไม่เรียกการกู้คืน ดังนั้น Stop โดยตั้งใจ ข้อมูลประจำตัวไม่ถูกต้อง
+404 หรือการตั้งค่าผิดจึงไม่เข้าสู่วงจรเริ่มใหม่อัตโนมัติ หลังแก้ไข ผู้ดูแลต้อง Start Service เอง
 
-## Logs and troubleshooting
+การตั้งค่าใช้พฤติกรรมกู้คืนของ SCM โดยตรง:
+[แฟล็กการดำเนินการเมื่อผิดพลาดของ Microsoft](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_failure_actions_flag)
+และ [สิทธิ์เข้าถึง Service](https://learn.microsoft.com/en-us/windows/win32/services/service-security-and-access-rights)
 
-Both modes retain file logging. Console additionally mirrors to stderr.
-Default retention is the current file plus five backups, 5 MiB each (about 30 MiB).
-Rotation occurs on write. Logs record lifecycle, enrollment, connection and retry
-events. JSON payloads and remote close reasons are not logged; HTTP enrollment
-errors report status codes without response bodies or credentials.
+<a id="logs-and-troubleshooting"></a>
 
-Inspect:
+## ล็อกและการแก้ปัญหา
+
+ทั้งสองโหมดคงการบันทึกไฟล์ Console แสดงสำเนาไป stderr ด้วย
+ค่าเริ่มต้นเก็บไฟล์ปัจจุบันกับสำรองห้าไฟล์ ไฟล์ละ 5 MiB (รวมประมาณ 30 MiB)
+หมุนล็อกเมื่อเขียน บันทึกเหตุการณ์วงจรการทำงาน การลงทะเบียน การเชื่อมต่อ และการลองใหม่
+ไม่บันทึก JSON payload หรือเหตุผลปิดการเชื่อมต่อจากปลายทาง
+ข้อผิดพลาด HTTP ในการลงทะเบียนแสดงรหัสสถานะโดยไม่มีเนื้อหาตอบกลับหรือข้อมูลรับรอง
+
+ตรวจสอบด้วย:
 
 ```powershell
 Get-Content -LiteralPath "$env:ProgramData\ThesisAgentDev\logs\agent.log" -Tail 80
 Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='ThesisAgentDev'} -MaxEvents 10
 ```
 
-- Running with API retry: check AGENT_API_URL, network, server and database.
-- Running with WS retry: check WS_SERVER_URL and whether REST/WS use the same DB.
-- A 404 with a marker: server no longer has that ID; use administrative provisioning
-  with the existing identity. Do not regenerate it.
-- Invalid identity/conflict: retain both files and investigate as Administrator.
-- Missing log: startup may have failed before file logging; inspect Application
-  events, Service status, protected paths and ACLs.
-- Missing screen in Service: check that the Desktop Helper is running in the
-  interactive user session; the Service itself runs in Session 0.
-- Service cannot start after update: check binary path, file ACL and startup error.
-- State already in use: stop the other runtime/provisioner; never delete a live lock.
-- A third crash stays stopped: expected bounded recovery; inspect and repair.
-- Environment differs between provisioning and SCM: review system variables and
-  persistent .env; never rely on the administrator shell's temporary environment.
+- Running แต่ลอง API ซ้ำ: ตรวจ AGENT_API_URL เครือข่าย เซิร์ฟเวอร์ และฐานข้อมูล
+- Running แต่ลอง WS ซ้ำ: ตรวจ WS_SERVER_URL และว่า REST/WS ใช้ฐานข้อมูลเดียวกันหรือไม่
+- ได้ 404 ทั้งที่มีไฟล์สถานะ: เซิร์ฟเวอร์ไม่มี ID นั้นแล้ว ให้ผู้ดูแลเตรียมติดตั้งด้วยข้อมูลประจำตัวเดิม ห้ามสร้างใหม่
+- ข้อมูลประจำตัวผิด/ขัดกัน: เก็บทั้งสองไฟล์ไว้และตรวจสอบด้วยสิทธิ์ Administrator
+- ไม่มีล็อก: startup อาจล้มเหลวก่อนเริ่มระบบล็อกไฟล์ ให้ตรวจ Application events สถานะ Service พาธและ ACL
+- ไม่มีภาพหน้าจอใน Service: ตรวจ Desktop Helper ว่าทำงานในเซสชันผู้ใช้ ส่วน Service อยู่ใน Session 0
+- Service เริ่มไม่ได้หลังอัปเดต: ตรวจพาธ binary, ACL ของไฟล์ และข้อผิดพลาดตอน startup
+- สถานะถูกใช้งานอยู่: หยุดรันไทม์/คำสั่งเตรียมติดตั้งอีกตัว ห้ามลบล็อกที่ยังใช้อยู่
+- ล่มครั้งที่สามแล้วยังหยุด: เป็นการกู้คืนแบบจำกัดตามที่กำหนด ให้ตรวจและแก้ไข
+- สภาพแวดล้อมระหว่างเตรียมติดตั้งกับ SCM ต่างกัน: ตรวจตัวแปรระบบและ .env ถาวร
+  อย่าพึ่งสภาพแวดล้อมชั่วคราวของ shell ผู้ดูแล
 
-## Desktop Capture Helper
+<a id="desktop-capture-helper"></a>
 
-Service delegates capture over the existing Named Pipe to the interactive Desktop
-Helper, receives JPEG in memory and sends the existing WebSocket binary frames.
-Console retains CaptureScreenJPEG. No interactive login/Helper means frames are
-temporarily unavailable; the Service stays alive. See
-[Desktop Capture Helper](desktop-capture-helper.md). ACL repair does not change
-this architecture, protocol or task-registration/update workflow.
+## ตัวช่วยจับภาพเดสก์ท็อป
 
-## Manual Windows acceptance checklist
+Service ส่งงานจับภาพผ่าน Named Pipe เดิมไปยัง Desktop Helper ในเซสชันผู้ใช้
+รับ JPEG ในหน่วยความจำแล้วส่งเฟรมไบนารี WebSocket ตามเดิม
+Console ยังคงใช้ CaptureScreenJPEG หากไม่มีผู้ใช้เข้าสู่ระบบ/Helper ภาพจะไม่พร้อมชั่วคราว
+แต่ Service ยังทำงาน ดู [ตัวช่วยจับภาพเดสก์ท็อป](desktop-capture-helper.md)
+การซ่อม ACL ไม่เปลี่ยนสถาปัตยกรรม โพรโทคอล หรือขั้นตอนลงทะเบียน task/อัปเดตนี้
 
-All rows below are **NOT YET VERIFIED MANUALLY** in this implementation session.
-The session was not elevated. Unit tests simulating SCM channels are not evidence
-of effective Windows SCM/ACL protection.
+<a id="manual-windows-acceptance-checklist"></a>
 
-| Test | Procedure and expected result |
+## รายการตรวจยอมรับบน Windows ด้วยตนเอง
+
+ทุกรายการด้านล่าง **ยังไม่ได้ตรวจยืนยันด้วยตนเอง (NOT YET VERIFIED MANUALLY)** ในเซสชันที่พัฒนา
+เซสชันนั้นไม่ได้ยกระดับสิทธิ์ Unit test ที่จำลองช่องทาง SCM
+ไม่ใช่หลักฐานว่าการป้องกัน Windows SCM/ACL มีผลจริง
+
+| การทดสอบ | ขั้นตอนและผลที่คาดหวัง |
 | --- | --- |
-| A Console regression | In an isolated console installation, go run .; verify terminal + file logs, existing features, console screen and Ctrl+C. |
-| B Install | Elevated Install; verify StartMode Auto, LocalSystem, correct quoted path, Running and durable logs. |
-| C Auto Start | Reboot after successful provisioning; do not launch Agent or log in first. Observe server/log timestamps proving startup before login. |
-| D Infrastructure unavailable at boot | Stop REST/WS, reboot the provisioned test PC; Service remains Running with retry logs. Restore infrastructure; enrollment/WS recover automatically. |
-| E WS restart | Restart WS while connected; Agent stays alive and reconnects with varied bounded backoff. |
-| F Identity | Record only agent_id and hashes of the identity file; restart Service and reboot; compare. Do not print private-key fields. |
-| G Service ACL | As Standard User attempt Services Stop, Stop-Service, sc.exe stop/config/delete. All mutations must be denied; service stays visible/queryable. |
-| H Process ACL | As Standard User attempt Task Manager End task and Stop-Process on the Service PID. Expect Access denied. |
-| I NTFS ACL | As Standard User attempt replace/rename/move/delete executable and modify/delete identity/config/enrollment state. Expect Access denied. |
-| J Admin control | Elevated Stop/Start/Restart work. After Stop, wait longer than recovery delays and confirm it stays stopped. |
-| K Crash recovery | On a disposable development PC, as Administrator find the exact Service PID, force-terminate only that process, and verify restart at configured delays. Third crash remains stopped. |
+| A ตรวจผลกระทบต่อ Console | ใช้การติดตั้ง Console แยก รัน go run . ตรวจล็อกเทอร์มินัลและไฟล์ ฟีเจอร์เดิม ภาพหน้าจอ และ Ctrl+C |
+| B ติดตั้ง | ใช้ Install แบบ elevated ตรวจ StartMode Auto, LocalSystem, พาธในเครื่องหมายคำพูดที่ถูกต้อง, Running และล็อกถาวร |
+| C เริ่มอัตโนมัติ | รีบูตหลังเตรียมติดตั้งสำเร็จ ไม่เปิด Agent หรือเข้าสู่ระบบก่อน ตรวจเวลาบนเซิร์ฟเวอร์/ล็อกเพื่อพิสูจน์ว่าเริ่มก่อนล็อกอิน |
+| D ระบบภายนอกใช้ไม่ได้ตอนบูต | หยุด REST/WS แล้วรีบูตเครื่องทดสอบที่เตรียมไว้ Service ต้อง Running และมีล็อกลองใหม่ เมื่อคืนระบบภายนอก การลงทะเบียน/WS ต้องกลับมาเอง |
+| E เริ่ม WS ใหม่ | เริ่ม WS ใหม่ขณะเชื่อมต่อ Agent ต้องยังทำงานและเชื่อมต่อใหม่ด้วยเวลาหน่วงสุ่มที่มีขอบเขต |
+| F ข้อมูลประจำตัว | บันทึกเฉพาะ agent_id และ hash ของไฟล์ข้อมูลประจำตัว เริ่ม Service ใหม่และรีบูตแล้วเทียบ ห้ามพิมพ์ฟิลด์กุญแจส่วนตัว |
+| G ACL ของ Service | ใช้ Standard User ลอง Stop ผ่าน Services, Stop-Service, sc.exe stop/config/delete การเปลี่ยนแปลงทั้งหมดต้องถูกปฏิเสธ แต่ยังมองเห็น/สอบถาม Service ได้ |
+| H ACL ของโปรเซส | ใช้ Standard User ลอง End task ใน Task Manager และ Stop-Process กับ PID ของ Service ต้องได้ Access denied |
+| I ACL ของ NTFS | ใช้ Standard User ลองแทนที่/เปลี่ยนชื่อ/ย้าย/ลบ executable และแก้/ลบข้อมูลประจำตัว/การตั้งค่า/สถานะลงทะเบียน ต้องได้ Access denied |
+| J การควบคุมของผู้ดูแล | Stop/Start/Restart แบบ elevated ต้องทำงาน หลัง Stop รอนานกว่าช่วงกู้คืนแล้วยังต้องหยุดอยู่ |
+| K กู้คืนหลังล่ม | บนเครื่องพัฒนาที่ใช้ทิ้งได้ ให้ผู้ดูแลหา PID ของ Service ให้แน่นอน บังคับยุติเฉพาะโปรเซสนั้น ตรวจการเริ่มใหม่ตามเวลาที่ตั้ง ครั้งที่สามต้องคงสถานะหยุด |
 
-Do not use the crash test on a production lab PC or kill unrelated processes.
-Use sc.exe explicitly in PowerShell (sc can be an alias).
+ห้ามทดสอบการล่มบนเครื่อง Lab ที่ใช้งานจริงหรือยุติโปรเซสที่ไม่เกี่ยวข้อง
+ใช้ sc.exe อย่างชัดเจนใน PowerShell เพราะ sc อาจเป็นชื่อย่อของคำสั่งอื่น
 
-Useful manual commands:
+คำสั่งสำหรับตรวจด้วยตนเอง:
 
 ```powershell
 sc.exe qc ThesisAgentDev
@@ -337,29 +346,28 @@ sc.exe sdshow ThesisAgentDev
 sc.exe qfailure ThesisAgentDev
 sc.exe qfailureflag ThesisAgentDev
 
-# Standard User rejection tests:
+# ทดสอบการปฏิเสธ Standard User:
 Stop-Service -Name ThesisAgentDev
 sc.exe config ThesisAgentDev start= disabled
 sc.exe delete ThesisAgentDev
-# Use the actual PID observed with queryex, not a guessed value:
+# ใช้ PID จริงที่อ่านจาก queryex ห้ามเดาค่า:
 # Stop-Process -Id <service-pid> -Force
 ```
 
-Do not claim Auto Start, reboot, ACL denial or crash recovery VERIFIED until those
-checks have actually run under the appropriate accounts.
+ห้ามรายงานว่า Auto Start, reboot, การปฏิเสธด้วย ACL หรือการกู้คืนหลังล่มยืนยันแล้ว (VERIFIED)
+จนกว่าจะทดสอบจริงด้วยบัญชีที่เหมาะสม
 
-## Deferred work and existing repository artifacts
+<a id="deferred-work-and-existing-repository-artifacts"></a>
 
-No Session Worker, new security/enrollment protocol, TLS/WSS redesign, updater,
-final installer, multi-machine provisioning or 10-machine acceptance testing is
-included. Agent signature authentication and
-least-privilege service-account review are deferred.
+## งานที่เลื่อนไปและสิ่งที่มีอยู่ใน repository
 
-Security Phase 1 removes .env, agent_config.json and data/downloads artifacts
-from the Git index while preserving their local bytes. History is not rewritten.
-Use .env.example for configuration and administrative provisioning for each
-machine's unique identity; never copy one machine's identity to another.
+ขอบเขตนี้ไม่รวม Session Worker โพรโทคอลความปลอดภัย/ลงทะเบียนใหม่ การออกแบบ TLS/WSS ใหม่
+ตัวอัปเดต ตัวติดตั้งฉบับสมบูรณ์ การเตรียมหลายเครื่อง หรือการทดสอบยอมรับ 10 เครื่อง
+การยืนยันตัวตน Agent ด้วยลายเซ็นและการทบทวนบัญชี Service ตามหลักสิทธิ์เท่าที่จำเป็นเลื่อนไประยะถัดไป
 
-The REST enrollment integration test now uses an isolated test schema and the
-current agent_id/public_key payload. It requires a disposable PostgreSQL
-TEST_DATABASE_URL; it must never run against an operational database.
+Security Phase 1 นำ .env, agent_config.json และสิ่งที่อยู่ใน data/downloads ออกจาก Git index
+โดยเก็บไบต์ในเครื่องไว้ ไม่เขียนประวัติใหม่ ใช้ .env.example สำหรับตั้งค่า
+และให้ผู้ดูแลเตรียมข้อมูลประจำตัวเฉพาะของแต่ละเครื่อง ห้ามคัดลอกข้อมูลประจำตัวของเครื่องหนึ่งไปอีกเครื่อง
+
+การทดสอบร่วมกับ REST enrollment ใช้ schema ทดสอบแยกและ payload agent_id/public_key ปัจจุบันแล้ว
+ต้องใช้ TEST_DATABASE_URL ของ PostgreSQL ที่ใช้ทิ้งได้ ห้ามรันกับฐานข้อมูลที่ใช้งานจริง

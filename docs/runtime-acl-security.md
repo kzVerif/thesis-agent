@@ -1,242 +1,246 @@
-# Phase 5B.1: runtime ACL inspection, repair and diagnostics
+<a id="phase-5b1-runtime-acl-inspection-repair-and-diagnostics"></a>
 
-Baseline: `81488afd80f17d6aca6ad5dcdff5233020796daf` (`capture helper`).
-Only the Agent repository is changed. Lab/LocalSystem acceptance is **NOT VERIFIED**.
+# Phase 5B.1: การตรวจสอบ ซ่อมแซม และวินิจฉัย ACL ของรันไทม์
 
-## Scope and policy
+รุ่นอ้างอิง: `81488afd80f17d6aca6ad5dcdff5233020796daf` (`capture helper`)
+เปลี่ยนแปลงเฉพาะ repository ของ Agent การทดสอบยอมรับบนเครื่อง Lab/ภายใต้ LocalSystem **ยังไม่ได้ยืนยัน (NOT VERIFIED)**
 
-Unattended repair runs only for `Options.Service`. Console and provisioning retain
-their previous locking/installer behavior. `ValidateFile` / `ValidateDirectory`
-remain read-only; the private-key loader, DPAPI implementation, identity generation,
-enrollment and transport protocols are unchanged.
+<a id="scope-and-policy"></a>
 
-The production security entry point accepts only the complete paths returned by
-`apppaths.Machine()` using Windows Known Folders. Its fixed startup scope is:
+## ขอบเขตและนโยบาย
 
-- Runtime root.
-- Existing `agent_config.json`, `enrollment_state.json`, `.env`, `.runtime.lock`.
-- Existing `agent_config.json.dpapi-user-v1.bak`, resolved by `Paths.IdentityBackup()`
-  using the suffix shared with private-key migration.
-- Directory objects `logs`, `data`, and `data/downloads`.
+การซ่อมอัตโนมัติทำงานเฉพาะเมื่อใช้ `Options.Service` โหมด Console และการเตรียมติดตั้ง
+ยังใช้พฤติกรรมการล็อกและตัวติดตั้งเดิม `ValidateFile` / `ValidateDirectory` ยังคงตรวจสอบอย่างเดียว
+ไม่เปลี่ยนตัวโหลดกุญแจส่วนตัว การทำงานของ DPAPI การสร้างข้อมูลประจำตัว การลงทะเบียน หรือโพรโทคอลสื่อสาร
 
-There is no directory enumeration in the startup planner or Windows adapter.
-Historical downloads, `.part` files, rotated logs, `.state-*.tmp` files and arbitrary
-nested descendants are not startup targets. Missing containers retain lazy creation:
-existing parents are checked at startup, then the exact directory is created and
-validated under a trusted parent when used.
-Nothing in Program Files or an ancestor is repaired. A missing runtime root is
-refused; missing identity/config/enrollment files are not created by repair.
+จุดเข้าใช้งานด้านความปลอดภัยในระบบจริงรับเฉพาะชุดพาธครบถ้วนที่คืนจาก `apppaths.Machine()`
+ผ่าน Windows Known Folders โดยตรวจรายการคงที่ต่อไปนี้เมื่อเริ่มทำงาน:
 
-Trusted owners/principals are SYSTEM and BUILTIN\Administrators, identified by SID.
-Canonical ACLs contain exactly their two Full Control allow ACEs. Directories use
-OI/CI inheritance, without inherit-only/no-propagate flags. The root DACL must be
-protected and explicit. Children can have equivalent inherited trusted ACEs or
-protected explicit ACEs, matching the installer and normal file creation. Repair
-writes protected explicit DACLs and preserves the existing trusted owner and SACL.
+- ไดเรกทอรีรากของรันไทม์
+- `agent_config.json`, `enrollment_state.json`, `.env`, `.runtime.lock` ที่มีอยู่
+- `agent_config.json.dpapi-user-v1.bak` ที่มีอยู่ โดยหาพาธผ่าน `Paths.IdentityBackup()`
+  และใช้ส่วนต่อท้ายชื่อไฟล์ร่วมกับกระบวนการย้ายรูปแบบการป้องกันกุญแจส่วนตัว
+- ตัวไดเรกทอรี `logs`, `data` และ `data/downloads`
 
-| Classification | Examples | Action |
+ทั้งตัวกำหนดรายการตรวจเมื่อเริ่มทำงานและส่วนเชื่อมต่อ Windows ไม่อ่านรายการไฟล์ในไดเรกทอรี
+ไฟล์ดาวน์โหลดเก่า ไฟล์ `.part` ล็อกที่หมุนเก็บแล้ว ไฟล์ `.state-*.tmp` และรายการอื่นที่ซ้อนอยู่ด้านใน
+ไม่อยู่ในขอบเขตการตรวจตอนเริ่มทำงาน หากยังไม่มีไดเรกทอรีปลายทาง จะสร้างเมื่อจำเป็นต้องใช้ตามเดิม:
+ตรวจไดเรกทอรีแม่ที่มีอยู่ตอนเริ่มทำงาน แล้วสร้างและตรวจไดเรกทอรีที่ต้องใช้ภายใต้ไดเรกทอรีแม่ที่เชื่อถือได้
+ไม่ซ่อมสิ่งใดใน Program Files หรือไดเรกทอรีระดับบน หากไม่มีรากของรันไทม์จะปฏิเสธการทำงาน
+การซ่อมไม่สร้างไฟล์ข้อมูลประจำตัว การตั้งค่า หรือสถานะการลงทะเบียนที่ขาดหายไป
+
+เจ้าของและผู้รับสิทธิ์ที่เชื่อถือได้คือ SYSTEM และ BUILTIN\Administrators โดยระบุด้วย SID
+ACL ตามรูปแบบมาตรฐานต้องมีรายการอนุญาต Full Control ของทั้งสองกลุ่มนี้พอดีสองรายการ
+ไดเรกทอรีใช้การสืบทอด OI/CI โดยไม่มีแฟล็ก inherit-only/no-propagate ส่วน DACL ของราก
+ต้องป้องกันการสืบทอดและกำหนดรายการสิทธิ์ไว้อย่างชัดเจน รายการลูกอาจใช้ ACE ที่สืบทอดจากผู้รับสิทธิ์
+ที่เชื่อถือได้ในรูปแบบเทียบเท่ากัน หรือใช้ ACE ที่กำหนดชัดเจนและป้องกันการสืบทอด
+ให้ตรงกับตัวติดตั้งและการสร้างไฟล์ตามปกติ การซ่อมเขียน DACL แบบกำหนดชัดเจนและป้องกันการสืบทอด
+โดยเก็บเจ้าของเดิมที่เชื่อถือได้และ SACL เดิมไว้
+
+| การจำแนก | ตัวอย่าง | การดำเนินการ |
 | --- | --- | --- |
-| Canonical | Trusted owner, exact SYSTEM/Admin full control and correct flags | Validate; no DACL write |
-| Repairable | Missing/restricted SYSTEM or Admin ACE; wrong inheritance flags; unprotected root containing only trusted ACEs; duplicate trusted ACEs | Acquire runtime lock, re-inspect, repair DACL, validate again |
-| Unsafe | Untrusted owner or any foreign allow ACE; absent/null/unreadable DACL; unknown/deny/callback/object ACEs | Refuse, preserve contents and ACLs, require manual security review/recovery |
-| Unsafe object/path | Reparse/junction/symlink at target or ancestor; unexpected type; path mismatch/escape; multiple hard links | Refuse without following or repairing it |
+| ตรงตามมาตรฐาน (Canonical) | เจ้าของเชื่อถือได้ มี SYSTEM/Admin Full Control ครบตามรูปแบบ และแฟล็กถูกต้อง | ตรวจสอบโดยไม่เขียน DACL |
+| ซ่อมได้อย่างปลอดภัย (Repairable) | ACE ของ SYSTEM หรือ Admin ขาดหาย/สิทธิ์ไม่ครบ; แฟล็กสืบทอดผิด; รากไม่ป้องกันการสืบทอดแต่มีเฉพาะ ACE ที่เชื่อถือได้; ACE ที่เชื่อถือได้ซ้ำกัน | ถือ runtime lock ตรวจซ้ำ ซ่อม DACL แล้วตรวจผลอีกครั้ง |
+| ไม่ปลอดภัย (Unsafe) | เจ้าของไม่น่าเชื่อถือ หรือมี allow ACE ของผู้รับสิทธิ์อื่น; DACL ไม่มีอยู่/เป็น null/อ่านไม่ได้; ACE ที่ไม่รู้จักหรือเป็น deny/callback/object | ปฏิเสธ เก็บเนื้อหาและ ACL เดิมไว้ และให้ผู้ดูแลตรวจสอบความปลอดภัย/กู้คืนด้วยตนเอง |
+| วัตถุหรือพาธไม่ปลอดภัย | เป้าหมายหรือไดเรกทอรีระดับบนเป็น reparse/junction/symlink; ชนิดวัตถุผิด; พาธไม่ตรงหรือออกนอกขอบเขต; มี hard link หลายชื่อ | ปฏิเสธโดยไม่ตามลิงก์หรือซ่อมวัตถุนั้น |
 
-Foreign ACEs are conservatively refused even if inherit-only or zero-mask. The
-implementation does not attempt effective-access analysis of arbitrary ACLs.
-An empty non-null DACL with trusted owner is classifiable as repairable, but repair
-still requires sufficient OS access to inspect the selected objects and lock runtime.
-No take-ownership or backup/restore privilege is enabled to bypass unreadability.
+ระบบปฏิเสธ ACE ของผู้รับสิทธิ์อื่นอย่างเคร่งครัด แม้เป็น inherit-only หรือมี access mask เป็นศูนย์
+ไม่พยายามวิเคราะห์สิทธิ์ที่มีผลจริงของ ACL ทุกรูปแบบ DACL ที่ว่างแต่ไม่ใช่ null และมีเจ้าของที่เชื่อถือได้
+จัดเป็นกรณีซ่อมได้ แต่ยังต้องมีสิทธิ์จากระบบปฏิบัติการเพียงพอที่จะตรวจวัตถุที่เลือกและล็อกรันไทม์
+ไม่เปิดสิทธิ์ take-ownership หรือ backup/restore เพื่อข้ามข้อจำกัดการอ่าน
 
-Unsafe means the expected boundary cannot be established; it does not prove an
-intrusion. Removing an unsafe ACE cannot undo potential past key disclosure.
-Neither Service startup nor administrator Repair has a force/override option.
-Do not use reinstallation to conceal an unsafe-state diagnosis.
+สถานะไม่ปลอดภัยหมายถึงไม่สามารถยืนยันขอบเขตความปลอดภัยที่คาดหวังได้ ไม่ใช่หลักฐานว่าถูกบุกรุกแล้ว
+การลบ ACE ที่ไม่ปลอดภัยไม่อาจย้อนคืนการเปิดเผยกุญแจที่อาจเกิดขึ้นก่อนหน้า
+ทั้งการเริ่ม Service และ Repair ของผู้ดูแลไม่มีตัวเลือก force/override
+ห้ามใช้การติดตั้งใหม่เพื่อกลบผลวินิจฉัยสถานะที่ไม่ปลอดภัย
 
-## Startup order and concurrency
+<a id="startup-order-and-concurrency"></a>
 
-1. Resolve and compare all expected machine paths.
-2. Pin existing ancestors from the volume root downward, checking type, reparse
-   attributes and resolved handle path. Ancestors are never mutated.
-3. Open runtime objects with `OPEN_REPARSE_POINT`, `BACKUP_SEMANTICS`,
-   `MAXIMUM_ALLOWED`, and no DELETE sharing. Inspect metadata through those handles;
-   open only the fixed critical/container paths. Preflight all selected objects
-   before any ACL write so parent repair cannot hide an unsafe critical child.
-   No historical child is opened or listed.
-4. Acquire the existing `.runtime.lock` byte lock using the pinned lock handle.
-   If absent, create only this coordination file using `CREATE_NEW` and an explicit
-   protected SYSTEM/Admin ACL. Never truncate or recreate an existing lock file.
-   A concurrent runtime/provisioner, sharing conflict or inaccessible lock causes
-   refusal before ACL repair.
-5. Repeat preflight under the lock. Immediately before each mutation inspect the
-   parent and target; repair through the same handle; inspect the result. Finally
-   validate every pinned object again. Any repair/post-validation error aborts.
-6. Release inspection handles, retain the runtime byte lock and ancestor pins.
-   Load `.env`, initialize logging and replay diagnostics, then execute existing
-   identity/enrollment/private-key/network/capture flow. Release the lock on exit.
+## ลำดับเริ่มทำงานและการทำงานพร้อมกัน
 
-`SetSecurityInfo` with `MAXIMUM_ALLOWED` does not propagate ACEs to existing children;
-historical children are not implicitly rewritten by container repair. This is
-covered by a real Windows temporary-file test and follows the
-[Microsoft API contract](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo).
-No content handle is read/written during repair; only security metadata and the
-coordination lock are used. Inherited access for *future* files remains SYSTEM/Admin.
+1. หาพาธของเครื่องทั้งหมดและเปรียบเทียบกับค่าที่คาดหวัง
+2. เปิด handle ค้างไว้กับไดเรกทอรีระดับบนที่มีอยู่ โดยไล่จากรากของโวลุ่มลงมา
+   ตรวจชนิดวัตถุ คุณลักษณะ reparse และพาธจริงจาก handle โดยไม่แก้ไขไดเรกทอรีเหล่านี้
+3. เปิดวัตถุของรันไทม์ด้วย `OPEN_REPARSE_POINT`, `BACKUP_SEMANTICS`, `MAXIMUM_ALLOWED`
+   และไม่อนุญาต DELETE sharing ตรวจข้อมูลกำกับผ่าน handle เหล่านั้น เปิดเฉพาะพาธสำคัญและ
+   ไดเรกทอรีขอบเขตที่กำหนดไว้ ตรวจวัตถุที่เลือกทั้งหมดก่อนเขียน ACL เพื่อไม่ให้การซ่อมไดเรกทอรีแม่
+   กลบสถานะไม่ปลอดภัยของไฟล์สำคัญด้านใน ไม่เปิดหรืออ่านรายชื่อไฟล์เก่าที่อยู่ด้านใน
+4. ขอ byte lock ของ `.runtime.lock` ผ่าน handle ที่เปิดค้างไว้ หากยังไม่มี ให้สร้างเฉพาะไฟล์ประสานงานนี้
+   ด้วย `CREATE_NEW` และ ACL ของ SYSTEM/Admin ที่กำหนดชัดเจนและป้องกันการสืบทอด
+   ไม่ตัดเนื้อหาหรือสร้างทับไฟล์ล็อกเดิม หากมีรันไทม์/คำสั่งเตรียมติดตั้งทำงานพร้อมกัน
+   มีการเปิดไฟล์ที่ขัดกัน หรือเข้าถึงล็อกไม่ได้ จะปฏิเสธก่อนซ่อม ACL
+5. ตรวจล่วงหน้าซ้ำขณะถือ lock ก่อนแก้ไขแต่ละครั้งให้ตรวจไดเรกทอรีแม่และเป้าหมายทันที
+   ซ่อมผ่าน handle เดิมและตรวจผล จากนั้นตรวจวัตถุที่เปิดค้างไว้ทั้งหมดอีกครั้ง
+   หากการซ่อมหรือการตรวจหลังซ่อมผิดพลาด ให้ยุติการทำงาน
+6. ปิด handle สำหรับตรวจสอบ แต่เก็บ runtime byte lock และ handle ของไดเรกทอรีระดับบนไว้
+   โหลด `.env` เริ่มระบบล็อก และเขียนข้อความวินิจฉัยที่พักไว้ลงล็อก จากนั้นทำขั้นตอนเดิมของ
+   ข้อมูลประจำตัว/การลงทะเบียน/กุญแจส่วนตัว/เครือข่าย/การจับภาพ ปล่อย lock เมื่อจบการทำงาน
 
-Startup work is independent of descendant count: the planner visits nine paths,
-checking cancellation between them. The recursive count/depth limits and
-`inspection_limit_exceeded` startup reason have been removed. Service startup and
-administrative Repair use exactly the same bounded scope.
+`SetSecurityInfo` ที่ใช้กับ `MAXIMUM_ALLOWED` ไม่กระจาย ACE ไปยังรายการลูกที่มีอยู่
+การซ่อมไดเรกทอรีจึงไม่เขียน ACL ของไฟล์เก่าด้านในโดยอ้อม มีการทดสอบด้วยไฟล์ชั่วคราวบน Windows จริง
+และสอดคล้องกับ [ข้อกำหนด API ของ Microsoft](https://learn.microsoft.com/en-us/windows/win32/api/aclapi/nf-aclapi-setsecurityinfo)
+ระหว่างซ่อมไม่มีการอ่าน/เขียนเนื้อหาไฟล์ ใช้เฉพาะข้อมูลกำกับความปลอดภัยและล็อกประสานงาน
+สิทธิ์ที่สืบทอดสำหรับไฟล์ที่จะสร้างในอนาคตยังคงเป็น SYSTEM/Admin
 
-## Dynamic objects at their use boundary
+ปริมาณงานตอนเริ่มทำงานไม่ขึ้นกับจำนวนรายการลูก: ตัวกำหนดรายการตรวจเข้าถึงเก้าพาธ
+และตรวจการยกเลิกระหว่างแต่ละพาธ เอาขีดจำกัดจำนวน/ความลึกของการตรวจแบบเวียนซ้ำ
+และเหตุผล `inspection_limit_exceeded` ออกจากขั้นตอนนี้แล้ว
+Service startup และ Repair ของผู้ดูแลใช้ขอบเขตจำกัดชุดเดียวกันทุกประการ
 
-We intentionally do not prove every historical download/log child secure before
-startup. Critical secret-bearing state remains strict; container ACLs prevent
-standard users from ordinarily creating/changing children. A dynamic object is
-validated when a feature actually uses it, without repairing its ACL automatically.
+<a id="dynamic-objects-at-their-use-boundary"></a>
 
-`internal/protectedpath/access_windows.go` implements the Service-only `Boundary`.
-It checks the requested path against runtime root, pins ancestors/exact parent
-directories, rejects reparses, aliases/ADS/path escape, and requires canonical
-trusted owner/DACL. Console and provisioning retain their existing I/O behavior.
+## การตรวจวัตถุที่เปลี่ยนแปลงระหว่างใช้งาน ณ จุดใช้งานจริง
 
-- **Logging:** `InitProtectedLoggingAt` validates/creates the exact log directory.
-  The active log opens with `OPEN_REPARSE_POINT`, no DELETE sharing and append access;
-  the same handle is inspected before content writes. Opening it does not inspect
-  rotated logs. Only when rotation is needed, validate the active path and fixed
-  retention slots (normally `.1` through `.5`) before any rename/delete. Size,
-  retention and rotation order are unchanged. Other historical logs are ignored.
-- **Downloads:** validate/create the configured directory when configuring the
-  manager. Each job checks its exact destination and parent before HTTP work.
-  Exclusively create a new random `.part` in a pinned trusted parent and validate
-  its handle before writing. Historical `.part` files are never resumed or scanned.
-  Checksum reopening validates the exact handle. Publish checks source/destination
-  immediately before the existing atomic rename/replace; cleanup checks only the
-  job's `.part`. Network protocol, URL rules, size and SHA-256 checks are unchanged.
-- **State:** critical state and the known key backup remain in the startup gate.
-  `internal/statefile` still creates exclusive random temporary files under the
-  protected root and publishes atomically, without opening historical `.state-*.tmp`
-  files. Private-key loading/migration semantics are unchanged; migration and
-  startup now share the authoritative backup suffix.
+ระบบตั้งใจไม่ยืนยันความปลอดภัยของไฟล์ดาวน์โหลด/ล็อกเก่าทุกไฟล์ก่อนเริ่มทำงาน
+สถานะสำคัญที่มีข้อมูลลับยังตรวจอย่างเข้มงวด ส่วน ACL ของไดเรกทอรีขอบเขตป้องกันผู้ใช้ทั่วไป
+จากการสร้างหรือเปลี่ยนรายการลูกตามปกติ วัตถุที่เปลี่ยนแปลงระหว่างใช้งานจะถูกตรวจเมื่อฟีเจอร์ใช้จริง
+โดยไม่ซ่อม ACL ของวัตถุนั้นอัตโนมัติ
 
-An unsafe historical file can remain unnoticed until used. Its presence alone does
-not block startup, and startup success does not establish that it is safe. This is
-the intentional security/availability tradeoff. No deep-audit command is added.
+`internal/protectedpath/access_windows.go` มี `Boundary` สำหรับ Service โดยเฉพาะ
+ตรวจพาธที่ร้องขอกับรากของรันไทม์ เปิด handle ค้างกับไดเรกทอรีระดับบนและไดเรกทอรีแม่ที่ต้องใช้
+ปฏิเสธ reparse, พาธนามแฝง, ADS และพาธที่ออกนอกขอบเขต พร้อมกำหนดให้เจ้าของ/DACL
+ตรงตามมาตรฐานที่เชื่อถือได้ โหมด Console และการเตรียมติดตั้งยังใช้พฤติกรรม I/O เดิม
 
-### Remaining TOCTOU limitations
+- **การบันทึกล็อก:** `InitProtectedLoggingAt` ตรวจ/สร้างเฉพาะไดเรกทอรีล็อกที่ต้องใช้
+  เปิดไฟล์ล็อกปัจจุบันด้วย `OPEN_REPARSE_POINT` ไม่อนุญาต DELETE sharing และใช้สิทธิ์เขียนต่อท้าย
+  ตรวจ handle เดียวกันก่อนเขียนเนื้อหา การเปิดไฟล์นี้ไม่ตรวจล็อกที่หมุนเก็บแล้ว
+  เมื่อจำเป็นต้องหมุนล็อกเท่านั้น จึงตรวจพาธปัจจุบันและตำแหน่งสำรองจำนวนคงที่
+  (ปกติ `.1` ถึง `.5`) ก่อนเปลี่ยนชื่อ/ลบ ขนาด จำนวนที่เก็บ และลำดับหมุนล็อกไม่เปลี่ยน
+  ไม่ตรวจล็อกเก่าอื่น ๆ
+- **การดาวน์โหลด:** ตรวจ/สร้างไดเรกทอรีที่ตั้งค่าไว้ตอนเตรียมตัวจัดการดาวน์โหลด
+  แต่ละงานตรวจปลายทางและไดเรกทอรีแม่ที่ต้องใช้ก่อนทำ HTTP สร้าง `.part` ชื่อสุ่มใหม่แบบไม่ทับของเดิม
+  ภายใต้ไดเรกทอรีแม่ที่เชื่อถือได้และมี handle ค้างอยู่ แล้วตรวจ handle ของไฟล์ก่อนเขียน
+  ไม่สแกนหรือดาวน์โหลดต่อจาก `.part` เก่า การเปิดกลับเพื่อตรวจ checksum ใช้ handle ที่ตรวจแล้ว
+  ก่อนเผยแพร่ไฟล์ให้ตรวจต้นทาง/ปลายทางทันทีก่อนเปลี่ยนชื่อหรือแทนที่แบบ atomic ตามเดิม
+  การเก็บกวาดตรวจเฉพาะ `.part` ของงานนั้น โพรโทคอลเครือข่าย กฎ URL การตรวจขนาด และ SHA-256 ไม่เปลี่ยน
+- **ไฟล์สถานะ:** สถานะสำคัญและไฟล์สำรองกุญแจที่รู้จักยังอยู่ในด่านตรวจตอนเริ่มทำงาน
+  `internal/statefile` ยังคงสร้างไฟล์ชั่วคราวชื่อสุ่มแบบไม่ทับของเดิมใต้รากที่ป้องกันไว้
+  และเผยแพร่แบบ atomic โดยไม่เปิด `.state-*.tmp` เก่า พฤติกรรมการโหลด/ย้ายรูปแบบกุญแจส่วนตัวไม่เปลี่ยน
+  กระบวนการย้ายและ startup ใช้ค่ากลางเดียวกันสำหรับส่วนต่อท้ายชื่อไฟล์สำรอง
 
-No DELETE sharing prevents ordinary rename/replacement of objects while inspected.
-Open-reparse handling, ancestor pins and final-path comparisons prevent ordinary
-path redirection from turning repair into a write outside the runtime tree.
-Hard-linked files are refused because another path would share their descriptor.
+ไฟล์เก่าที่ไม่ปลอดภัยอาจไม่ถูกตรวจพบจนกว่าจะมีการใช้งาน การมีไฟล์นั้นอยู่เพียงอย่างเดียว
+ไม่ขัดขวาง startup และ startup ที่สำเร็จก็ไม่ยืนยันว่าไฟล์นั้นปลอดภัย
+นี่คือการแลกเปลี่ยนระหว่างความปลอดภัยกับความพร้อมใช้งานที่ตั้งใจไว้ ไม่เพิ่มคำสั่งตรวจทั้งต้นไม้แบบละเอียด
 
-This is not an atomic filesystem transaction or protection against a hostile
-Administrator/SYSTEM/kernel actor. A privileged process can change descriptors,
-content or directory entries, including adding children, without honoring the
-runtime lock. Handles do not freeze security descriptors or revoke previously
-granted handles. Inspection handles are released before normal runtime file I/O
-to preserve atomic state replacement/log rotation. Normal loaders continue using
-their existing validation. Dynamic open/append/checksum use the same handle as
-validation. Rename/delete checks allow DELETE sharing to permit the operation,
-while checked containers remain pinned; this is not atomic check-and-rename against
-a privileged concurrent writer. Prior exposure that leaves no observable evidence is
-not detectable. Partially completed safe repairs are not rolled back after a
-later failure; startup remains stopped, contents remain untouched, and no
-potentially less secure ACL is restored.
+<a id="remaining-toctou-limitations"></a>
 
-## Diagnostics and logging
+### ข้อจำกัด TOCTOU ที่ยังเหลืออยู่
 
-Diagnostics contain `scope=critical`, `scope=container` or `scope=on_access`,
-quoted object paths, classification, reason, action, owner
-SID and (for a foreign ACE) principal SID/access mask. They contain no file contents,
-public/private key material, ciphertext or enrollment tokens. Reason codes include:
+การไม่อนุญาต DELETE sharing ป้องกันการเปลี่ยนชื่อ/แทนที่วัตถุตามปกติระหว่างตรวจสอบ
+การเปิดโดยจัดการ reparse โดยตรง การถือ handle ของไดเรกทอรีระดับบน และการเทียบพาธจริง
+ป้องกันการเปลี่ยนทางพาธตามปกติไม่ให้การซ่อมกลายเป็นการเขียนนอกรันไทม์
+ปฏิเสธไฟล์ที่มี hard link เพราะพาธอื่นจะใช้ security descriptor ร่วมกัน
 
-| Codes | Meaning |
+กระบวนการนี้ไม่ใช่ธุรกรรมระบบไฟล์แบบ atomic และไม่ป้องกันผู้โจมตีที่มีสิทธิ์ Administrator/SYSTEM/kernel
+โปรเซสสิทธิ์สูงสามารถเปลี่ยน descriptor เนื้อหา หรือรายการในไดเรกทอรี รวมถึงเพิ่มรายการลูก
+โดยไม่ปฏิบัติตาม runtime lock ได้ การถือ handle ไม่ได้ตรึง security descriptor หรือเพิกถอน handle
+ที่เคยได้สิทธิ์ไปแล้ว ระบบปิด handle สำหรับตรวจสอบก่อน I/O ปกติเพื่อรักษาการแทนที่ไฟล์สถานะแบบ atomic
+และการหมุนล็อก ตัวโหลดปกติยังตรวจสอบตามเดิม การเปิด/เขียนต่อท้าย/ตรวจ checksum ของไฟล์ระหว่างใช้งาน
+ใช้ handle เดียวกับที่ตรวจสอบ ส่วนการตรวจสำหรับเปลี่ยนชื่อ/ลบอนุญาต DELETE sharing เพื่อให้ทำงานได้
+ขณะที่ยังถือ handle ของไดเรกทอรีที่ตรวจแล้ว จึงไม่ใช่การตรวจและเปลี่ยนชื่อแบบ atomic
+เมื่อมีผู้เขียนสิทธิ์สูงทำงานพร้อมกัน ระบบตรวจไม่พบการเปิดเผยข้อมูลในอดีตที่ไม่เหลือหลักฐานให้สังเกต
+หากซ่อมกรณีปลอดภัยไปบางส่วนแล้วเกิดข้อผิดพลาดภายหลัง จะไม่ย้อน ACL กลับ
+startup ยังคงหยุด เนื้อหาไม่ถูกเปลี่ยน และไม่คืน ACL ที่อาจปลอดภัยน้อยกว่าเดิม
+
+<a id="diagnostics-and-logging"></a>
+
+## การวินิจฉัยและการบันทึกล็อก
+
+ข้อความวินิจฉัยประกอบด้วย `scope=critical`, `scope=container` หรือ `scope=on_access`
+พาธวัตถุในเครื่องหมายคำพูด ประเภทที่จำแนก เหตุผล การดำเนินการ SID เจ้าของ
+และ SID/access mask ของผู้รับสิทธิ์เมื่อพบ ACE ของผู้รับสิทธิ์อื่น
+ไม่มีเนื้อหาไฟล์ ข้อมูลกุญแจสาธารณะ/ส่วนตัว ข้อมูลที่เข้ารหัส หรือโทเคนลงทะเบียน รหัสเหตุผลได้แก่:
+
+| รหัส | ความหมาย |
 | --- | --- |
-| `acl_canonical` | Trusted ACL verified |
-| `inheritance_drift`, `missing_system_full_control`, `missing_admin_full_control`, `noncanonical_trusted_aces` | Safely repairable metadata drift |
-| `untrusted_owner`, `untrusted_ace` | Foreign ownership/access; manual review required |
-| `reparse_point_detected`, `unexpected_object_type`, `path_escape`, `hard_link_detected` | Unsafe object/path |
-| `security_descriptor_unreadable` | Cannot open/inspect, null/absent DACL or unsupported/ambiguous descriptor |
-| `repair_started`, `repair_success`, `repair_failed`, `post_repair_validation_failed` | Mutation and verification results |
-| `runtime_lock_failed`, `parent_validation_failed`, `path_resolution_failed` | Startup safety prerequisite failed |
-| `unsafe_acl_fail_closed`, `startup_failed` | Startup refused |
+| `acl_canonical` | ยืนยัน ACL ที่เชื่อถือได้แล้ว |
+| `inheritance_drift`, `missing_system_full_control`, `missing_admin_full_control`, `noncanonical_trusted_aces` | ข้อมูลกำกับคลาดเคลื่อนที่ซ่อมได้อย่างปลอดภัย |
+| `untrusted_owner`, `untrusted_ace` | เจ้าของ/ผู้รับสิทธิ์นอกกลุ่มที่เชื่อถือได้ ต้องตรวจสอบด้วยตนเอง |
+| `reparse_point_detected`, `unexpected_object_type`, `path_escape`, `hard_link_detected` | วัตถุหรือพาธไม่ปลอดภัย |
+| `security_descriptor_unreadable` | เปิด/ตรวจไม่ได้, DACL เป็น null/ไม่มีอยู่ หรือ descriptor ไม่รองรับ/กำกวม |
+| `repair_started`, `repair_success`, `repair_failed`, `post_repair_validation_failed` | ผลการแก้ไขและตรวจสอบ |
+| `runtime_lock_failed`, `parent_validation_failed`, `path_resolution_failed` | เงื่อนไขความปลอดภัยก่อน startup ไม่ผ่าน |
+| `unsafe_acl_fail_closed`, `startup_failed` | ปฏิเสธการเริ่มทำงาน |
 
-Before the file logger is ready, diagnostics go to the existing `ThesisAgentDev`
-Windows Application Event source (error event 1, informational event 2). Successful
-startup replays buffered diagnostics, including repair results, into the configured
-`agent.log`. Later download diagnostics go to that file. Logger I/O rejection uses
-Event Log directly once initialized, avoiding recursive writes through the same
-logger mutex or rejected path. Unsafe startup does not attempt to
-write inside the rejected tree. The host also retains its existing startup failure
-event. Event Log failures are best-effort and never convert a rejection to success.
-If both file logging and Event Log are unavailable, the process still fails closed;
-there may be no durable detailed event. No Event source is installed at startup.
+ก่อนระบบล็อกไฟล์พร้อม ข้อความวินิจฉัยส่งไปยังแหล่ง Windows Application Event เดิมชื่อ `ThesisAgentDev`
+(เหตุการณ์ข้อผิดพลาดหมายเลข 1 และข้อมูลทั่วไปหมายเลข 2) เมื่อ startup สำเร็จ
+จะเขียนข้อความที่พักไว้รวมถึงผลการซ่อมลง `agent.log` ที่ตั้งค่าไว้
+ข้อความวินิจฉัยการดาวน์โหลดหลังจากนั้นลงไฟล์เดียวกัน หาก I/O ของตัวล็อกถูกปฏิเสธหลังเริ่มระบบแล้ว
+จะส่งตรงไป Event Log เพื่อเลี่ยงการเขียนวนผ่าน mutex ของตัวล็อกหรือพาธที่ถูกปฏิเสธ
+startup ที่ไม่ปลอดภัยไม่พยายามเขียนภายในต้นไม้ที่ถูกปฏิเสธ
+ตัวโฮสต์ยังคงส่งเหตุการณ์ startup ล้มเหลวตามเดิม การส่ง Event Log ทำเท่าที่ทำได้
+ความล้มเหลวของ Event Log ไม่เปลี่ยนผลปฏิเสธให้เป็นสำเร็จ หากทั้งล็อกไฟล์และ Event Log ใช้ไม่ได้
+โปรเซสยังปฏิเสธการทำงาน แต่อาจไม่มีบันทึกรายละเอียดถาวร ไม่มีการติดตั้ง Event source ตอน startup
 
-## Administrator Repair
+<a id="administrator-repair"></a>
 
-Use elevated **Windows PowerShell 5.1** on the Lab PC, with a reviewed Phase 5B.1
-binary. Resolve names and paths using `--service-info`. After explicitly stopping
-the owned Service and waiting for Stopped:
+## การซ่อมโดยผู้ดูแลระบบ
+
+ใช้ **Windows PowerShell 5.1** แบบ Run as Administrator บนเครื่อง Lab กับ binary Phase 5B.1
+ที่ตรวจทานแล้ว อ่านชื่อและพาธผ่าน `--service-info` หลังจากผู้ดูแลหยุด Service ของระบบนี้
+อย่างชัดเจนและรอให้เป็น Stopped แล้ว ให้ใช้:
 
 ```powershell
 .\scripts\dev-service.ps1 -Action Repair -Executable .\build\thesis-agent.exe
 ```
 
-Repair verifies expected Program Files/ProgramData metadata, rejects reparse paths,
-and validates an installed, stopped, dedicated LocalSystem Service with the exact
-expected executable/arguments. The Go `--repair-runtime-acl` maintenance mode repeats
-the ownership/state check and invokes the same nine-path engine as startup. It never
-repairs historical downloads, rotated logs or arbitrary runtime descendants. It accepts no
-target-path argument or force flag and cannot combine with other modes.
+Repair ตรวจข้อมูลกำกับ Program Files/ProgramData ที่คาดหวัง ปฏิเสธพาธ reparse
+และตรวจว่า Service ที่ติดตั้งไว้หยุดแล้ว ใช้โปรเซส LocalSystem แยกเฉพาะ
+พร้อม executable/arguments ตรงตามที่คาดหวัง โหมดบำรุงรักษา Go `--repair-runtime-acl`
+ตรวจความเป็น Service ของระบบนี้และสถานะซ้ำ แล้วเรียกกลไกเก้าพาธเดียวกับ startup
+ไม่ซ่อมไฟล์ดาวน์โหลดเก่า ล็อกที่หมุนเก็บแล้ว หรือรายการอื่นใต้รันไทม์
+ไม่รับอาร์กิวเมนต์พาธเป้าหมายหรือแฟล็ก force และใช้ร่วมกับโหมดอื่นไม่ได้
 
-The lifecycle is **Option B**: refuse while running; no automatic stop/start/restart.
-The runtime lock also excludes a cooperating provisioner/runtime that starts after
-the SCM query. This avoids stopping unrelated processes and makes maintenance
-explicit. The Service remains stopped after both success and failure.
+วงจรการทำงานใช้ **Option B**: ปฏิเสธขณะ Service ทำงาน ไม่มีการ stop/start/restart อัตโนมัติ
+runtime lock ยังกันคำสั่งเตรียมติดตั้ง/รันไทม์ที่เคารพล็อกและเริ่มหลังการสอบถาม SCM
+จึงไม่ต้องหยุดโปรเซสอื่นและทำให้การบำรุงรักษาเป็นการกระทำที่ชัดเจน
+Service ยังคงหยุดทั้งหลังสำเร็จและหลังล้มเหลว
 
-Output goes to the administrative console and Application Event Log. Success is
-also visible as canonical security diagnostics on the next normal Service startup.
-Repair never provisions, prompts for a token, registers/re-enrolls, migrates DPAPI,
-copies a binary/config, creates an identity or invokes a network endpoint. It rejects
-`ConfigPath`, `IdentityPath` and `NewIdentity`. Failure returns nonzero and requests
-manual security review/recovery; unsafe findings never trigger an ACL reset.
+ผลลัพธ์แสดงใน Console ของผู้ดูแลและ Application Event Log
+การเริ่ม Service ตามปกติครั้งถัดไปจะแสดงข้อความยืนยัน ACL ตามมาตรฐานด้วย
+Repair ไม่เตรียมติดตั้ง ไม่ถามโทเคน ไม่ลงทะเบียนใหม่ ไม่ย้าย DPAPI ไม่คัดลอก binary/config
+ไม่สร้างข้อมูลประจำตัว และไม่เรียกปลายทางเครือข่าย ปฏิเสธ `ConfigPath`, `IdentityPath` และ `NewIdentity`
+เมื่อผิดพลาดคืน exit code ที่ไม่ใช่ศูนย์และให้ผู้ดูแลตรวจสอบความปลอดภัย/กู้คืนด้วยตนเอง
+การพบสถานะไม่ปลอดภัยไม่ทำให้รีเซ็ต ACL
 
-`-Action Install` and all BAT files retain their existing semantics, including
-`update-agent.bat` using prebuilt Agent and Desktop Helper binaries. This phase
-does not add legacy-key migration to `install-existing-agent.bat`.
+`-Action Install` และไฟล์ BAT ทั้งหมดยังคงพฤติกรรมเดิม รวมถึง `update-agent.bat`
+ที่ใช้ binary ของ Agent และ Desktop Helper ซึ่ง build ไว้ล่วงหน้า
+ระยะนี้ไม่เพิ่มการย้ายรูปแบบกุญแจเก่าให้ `install-existing-agent.bat`
 
-Desktop Capture remains Service → Named Pipe → interactive Desktop Helper → JPEG
-→ Service-owned WebSocket. The Helper receives no server credentials. See
-[Desktop Capture Helper](desktop-capture-helper.md).
+Desktop Capture ยังคงเป็น Service → Named Pipe → Desktop Helper ในเซสชันผู้ใช้ → JPEG
+→ WebSocket ที่ Service เป็นผู้ดูแล Helper ไม่ได้รับข้อมูลรับรองของเซิร์ฟเวอร์
+ดู [ตัวช่วยจับภาพเดสก์ท็อป](desktop-capture-helper.md)
 
-## Verification evidence and limits
+<a id="verification-evidence-and-limits"></a>
 
-Tests cover descriptor classification, unknown/unsafe ACE rejection, read-only
-inspection, repair failures/post-validation failures/idempotency, actual Windows
-DACL writes with content hashes and propagation checks, pinned object replacement,
-hard links, symlinks, foreign root refusal, machine-path rejection, startup ordering,
-Console/provisioning isolation, logging routing and Service ownership matching.
+## หลักฐานการตรวจสอบและข้อจำกัด
 
-`TestLargeDownloadsDirectoryDoesNotPreventStartupSecurity` uses virtual metadata
-with 0, 20,000 and 50,000 download children, unsafe rotated logs and nested unknown
-objects. It invokes the production fixed planner with a metadata visitor and asserts
-the same nine paths are checked once, without descendant or active-log access.
-This proves no traversal by the planner; it is not a 50,000-file disk benchmark or
-LocalSystem deployment test. Critical/container unsafe entries still fail preflight.
-Native Windows append handles and reparse/escape boundary refusals are also tested.
+การทดสอบครอบคลุมการจำแนก descriptor การปฏิเสธ ACE ที่ไม่รู้จัก/ไม่ปลอดภัย การตรวจแบบไม่แก้ไข
+การซ่อมล้มเหลว/ตรวจหลังซ่อมล้มเหลว/ทำซ้ำแล้วผลคงเดิม การเขียน DACL บน Windows จริงพร้อมตรวจ hash
+ของเนื้อหาและการกระจายสิทธิ์ การแทนที่วัตถุที่ถือ handle อยู่ hard link, symlink
+การปฏิเสธรากที่เจ้าของไม่อยู่ในกลุ่มที่เชื่อถือได้ การปฏิเสธพาธที่ไม่ใช่พาธของเครื่อง
+ลำดับ startup การแยก Console/การเตรียมติดตั้ง เส้นทางส่งล็อก และการตรวจ Service ว่าเป็นของระบบนี้
 
-Temporary caller-owned Windows fixtures use retained handles to restore their
-original DACL during cleanup. Trusted owner substitution for descriptor testing is
-in memory only; the production inspector still rejects those caller-owned fixtures.
-No production safety policy is loosened to make tests pass.
+`TestLargeDownloadsDirectoryDoesNotPreventStartupSecurity` ใช้ข้อมูลกำกับจำลอง
+ที่มีไฟล์ดาวน์โหลด 0, 20,000 และ 50,000 รายการ พร้อมล็อกที่หมุนเก็บแล้วซึ่งไม่ปลอดภัย
+และวัตถุไม่รู้จักที่ซ้อนอยู่ด้านใน เรียกตัวกำหนดรายการคงที่ตัวเดียวกับระบบจริงผ่านตัวอ่านข้อมูลกำกับจำลอง
+และยืนยันว่าตรวจเก้าพาธเดิมพาธละครั้ง โดยไม่เข้าถึงรายการลูกหรือไฟล์ล็อกปัจจุบัน
+จึงพิสูจน์ว่าตัวกำหนดรายการไม่เดินไล่ไฟล์ ไม่ใช่การวัดความเร็วกับไฟล์จริง 50,000 ไฟล์
+หรือทดสอบติดตั้งภายใต้ LocalSystem วัตถุสำคัญ/ไดเรกทอรีขอบเขตที่ไม่ปลอดภัยยังไม่ผ่านการตรวจล่วงหน้า
+มีการทดสอบ handle เขียนต่อท้ายของ Windows จริง และการปฏิเสธ reparse/พาธออกนอกขอบเขตด้วย
 
-The elevated fixed-scope/dynamic-I/O fixtures and canonical/repaired `service.LoadPrivateKey`
-integration test are present but **SKIPPED / NOT VERIFIED** with this session's
-unelevated token. They use only generated temporary fixture identities and DPAPI;
-they do not read/write the actual ProgramData installation. Existing DPAPI/key
-validation tests continue to run independently.
+ชุดข้อมูลชั่วคราวบน Windows ที่บัญชีผู้รันทดสอบเป็นเจ้าของ ใช้ handle ที่เก็บไว้คืน DACL เดิมตอนเก็บกวาด
+การแทนเจ้าของด้วยเจ้าของที่เชื่อถือได้เพื่อทดสอบ descriptor ทำเฉพาะในหน่วยความจำ
+ตัวตรวจในระบบจริงยังปฏิเสธชุดข้อมูลที่ผู้รันทดสอบเป็นเจ้าของเหล่านี้
+ไม่ได้ผ่อนนโยบายความปลอดภัยของระบบจริงเพื่อให้ทดสอบผ่าน
 
-Race detector is **NOT VERIFIED**: this environment has `CGO_ENABLED=0` and no
-discovered GCC/Clang toolchain. Actual SCM startup, LocalSystem access, effective
-Standard User denial, Event Viewer delivery/fallback, restart/reboot, live
-installer/update and Desktop JPEG delivery are **NOT VERIFIED**. Use the
-[Lab acceptance procedure](windows-service-acceptance.md#phase-5b1-acl-acceptance-on-one-lab-pc).
+มีชุดทดสอบขอบเขตคงที่/I/O ระหว่างใช้งานที่ต้องใช้สิทธิ์ elevated และการทดสอบร่วมกับ
+`service.LoadPrivateKey` ทั้งก่อนและหลังซ่อม แต่ **ถูกข้าม / ยังไม่ได้ยืนยัน (SKIPPED / NOT VERIFIED)**
+เพราะโทเคนของเซสชันที่พัฒนาไม่ได้ยกระดับสิทธิ์ ชุดทดสอบใช้เฉพาะข้อมูลประจำตัวชั่วคราวที่สร้างขึ้นและ DPAPI
+ไม่อ่าน/เขียนการติดตั้งจริงใน ProgramData ส่วนการทดสอบ DPAPI/การตรวจสอบกุญแจเดิมยังทำงานแยกตามปกติ
+
+Race detector **ยังไม่ได้ยืนยัน (NOT VERIFIED)**: สภาพแวดล้อมนี้มี `CGO_ENABLED=0`
+และไม่พบชุดเครื่องมือ GCC/Clang การเริ่ม SCM จริง การเข้าถึงภายใต้ LocalSystem
+การปฏิเสธ Standard User ที่มีผลจริง การส่ง/ใช้ Event Viewer เป็นช่องทางสำรอง การ restart/reboot
+ตัวติดตั้ง/อัปเดตจริง และการส่ง Desktop JPEG **ยังไม่ได้ยืนยัน (NOT VERIFIED)**
+ให้ใช้ [ขั้นตอนทดสอบยอมรับบนเครื่อง Lab](windows-service-acceptance.md#phase-5b1-acl-acceptance-on-one-lab-pc)

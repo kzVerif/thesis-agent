@@ -1,29 +1,30 @@
-# Remaining Windows acceptance procedures
+<a id="remaining-windows-acceptance-procedures"></a>
 
-Status on 2026-09-21: **NOT YET VERIFIED MANUALLY**.
-Run these procedures on the designated development PC/VM. The implementation
-session did not install a Service, reboot, switch accounts, or terminate a process.
-Use a VM snapshot for tests that deliberately try to disable/delete/kill the
-Service: a defective ACL could let an attempted operation succeed.
+# ขั้นตอนทดสอบยอมรับบน Windows ที่ยังเหลืออยู่
 
-## 1. Prepare and install as Administrator
+สถานะ ณ 2026-09-21: **ยังไม่ได้ตรวจยืนยันด้วยตนเอง (NOT YET VERIFIED MANUALLY)**
+ให้ทำขั้นตอนเหล่านี้บนเครื่องพัฒนา/VM ที่กำหนด เซสชันที่พัฒนาไม่ได้ติดตั้ง Service
+รีบูต สลับบัญชี หรือยุติโปรเซส ให้เก็บ snapshot ของ VM ก่อนทดสอบที่จงใจลองปิดใช้งาน/ลบ/ยุติ Service
+เพราะ ACL ที่ผิดอาจทำให้การกระทำที่ควรถูกปฏิเสธสำเร็จได้
 
-Use Windows PowerShell 5.1 as Administrator. Review Get-ExecutionPolicy -List:
-the current development machine blocked .ps1 execution before the script ran.
-Have the administrator permit the reviewed script through the organization's
-approved policy/signing process if needed. No execution policy is changed by
-the provisioning tool or these instructions.
+<a id="1-prepare-and-install-as-administrator"></a>
 
-Build the reviewed source, then select the correct identity for this installation.
-Do not use a different machine's identity or delete identity to fix enrollment.
-Save an Administrator-only backup of the existing identity/config outside the
-installation before migration; keep private-key fields out of terminal output.
+## 1. เตรียมและติดตั้งด้วยสิทธิ์ Administrator
 
-Create a reviewed .env outside source control containing the correct endpoints
-and POWER_MODE=mock. Put POWER_MODE in this persistent file, not merely in the
-administrator shell environment; SCM has a different environment.
+ใช้ Windows PowerShell 5.1 แบบ Run as Administrator ตรวจ Get-ExecutionPolicy -List:
+เครื่องพัฒนาขณะนั้นบล็อกการเรียก .ps1 ก่อนสคริปต์เริ่มทำงาน หากจำเป็น ให้ผู้ดูแลอนุญาตสคริปต์
+ที่ตรวจทานแล้วผ่านนโยบาย/กระบวนการลงลายเซ็นที่องค์กรรับรอง
+เครื่องมือเตรียมติดตั้งและคำแนะนำนี้ไม่เปลี่ยน execution policy
 
-From the Agent repository, after replacing these two example source paths:
+Build ซอร์สที่ตรวจทานแล้ว แล้วเลือกข้อมูลประจำตัวให้ตรงกับการติดตั้งนี้
+ห้ามใช้ข้อมูลประจำตัวของเครื่องอื่นหรือลบข้อมูลประจำตัวเพื่อแก้ปัญหาลงทะเบียน
+ก่อนย้าย ให้สำรองข้อมูลประจำตัว/การตั้งค่าเดิมนอกตำแหน่งติดตั้งโดยให้เฉพาะ Administrator เข้าถึงได้
+ห้ามแสดงฟิลด์กุญแจส่วนตัวบนเทอร์มินัล
+
+สร้าง .env ที่ตรวจทานแล้วนอกระบบควบคุมเวอร์ชัน ระบุปลายทางที่ถูกต้องและ POWER_MODE=mock
+ให้ใส่ POWER_MODE ในไฟล์ถาวรนี้ ไม่ใช่เพียงสภาพแวดล้อม shell ของผู้ดูแล เพราะ SCM ใช้สภาพแวดล้อมต่างกัน
+
+จาก repository ของ Agent หลังเปลี่ยนพาธต้นทางตัวอย่างทั้งสองเป็นพาธจริง:
 
     .\scripts\dev-service.ps1 -Action Install -ConfigPath 'D:\PrivateConfig\service.env' -IdentityPath 'D:\ExistingAgent\agent_config.json'
     .\scripts\dev-service.ps1 -Action Status
@@ -33,21 +34,23 @@ From the Agent repository, after replacing these two example source paths:
     sc.exe qfailureflag ThesisAgentDev
     sc.exe sdshow ThesisAgentDev
 
-Only for a genuinely new installation, replace -IdentityPath with -NewIdentity.
-Enrollment may prompt for the existing registration token if REST returns 404.
-Do not put the token in arguments, .env, test records, or logs.
+เฉพาะการติดตั้งใหม่จริงเท่านั้นที่เปลี่ยน -IdentityPath เป็น -NewIdentity
+การลงทะเบียนอาจถามโทเคนลงทะเบียนเดิมเมื่อ REST คืน 404
+ห้ามใส่โทเคนในอาร์กิวเมนต์ .env บันทึกการทดสอบ หรือล็อก
 
-Expect Automatic, LocalSystem, an explicitly quoted installed executable path,
-and Running. Then verify enrollment and WebSocket connection in the Agent log.
-Running alone does not prove Online. Expect recovery delays 5s, 30s, then no
-action, and non-crash recovery disabled. On an existing installation repaired
-from different recovery settings, Microsoft documents that the failure-action
-flag change takes effect at the next system start; confirm after the planned
-reboot ([failure-action flags](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_failure_actions_flag)).
+คาดหวัง Automatic, LocalSystem, พาธ executable ที่ติดตั้งแล้วในเครื่องหมายคำพูดอย่างชัดเจน และ Running
+จากนั้นตรวจการลงทะเบียนและการเชื่อมต่อ WebSocket ในล็อก Agent
+Running อย่างเดียวไม่พิสูจน์ว่า Online ค่ากู้คืนที่คาดหวังคือหน่วง 5 วินาที 30 วินาที
+แล้วไม่ดำเนินการ และปิดการกู้คืนข้อผิดพลาดที่ไม่ใช่โปรเซสล่ม
+หากการติดตั้งเดิมปรับมาจากค่ากู้คืนอื่น Microsoft ระบุว่าการเปลี่ยนแฟล็ก failure-action
+มีผลเมื่อเริ่มระบบครั้งถัดไป ให้ยืนยันหลังรีบูตตามแผน
+([แฟล็กการดำเนินการเมื่อผิดพลาด](https://learn.microsoft.com/en-us/windows/win32/api/winsvc/ns-winsvc-service_failure_actions_flag))
 
-## 2. Record paths, permissions and identity baseline
+<a id="2-record-paths-permissions-and-identity-baseline"></a>
 
-In that elevated PowerShell window:
+## 2. บันทึกค่าฐานของพาธ สิทธิ์ และข้อมูลประจำตัว
+
+ในหน้าต่าง PowerShell แบบ elevated เดิม:
 
     $meta = .\build\thesis-agent.exe --service-info | ConvertFrom-Json
     icacls.exe $meta.paths.install
@@ -58,12 +61,12 @@ In that elevated PowerShell window:
     icacls.exe $meta.paths.enrollment
     Get-Content -LiteralPath $meta.paths.log -Tail 60
 
-Expect SYSTEM and Administrators FullControl. Builtin Users may read/execute
-the program tree, but may not modify it; the runtime tree is restricted to
-SYSTEM/Administrators. Inspect owner and protected inheritance as well as ACEs.
-This inspection is not a substitute for running under a Standard User account.
+คาดหวัง SYSTEM และ Administrators มี FullControl กลุ่ม Builtin Users อ่าน/เรียกทำงานในต้นไม้โปรแกรมได้
+แต่แก้ไขไม่ได้ ส่วนต้นไม้รันไทม์จำกัดเฉพาะ SYSTEM/Administrators
+ตรวจเจ้าของและการป้องกันการสืบทอดด้วย ไม่ใช่ดูเฉพาะ ACE
+การตรวจนี้ไม่ทดแทนการทดสอบภายใต้บัญชี Standard User จริง
 
-Record only ID and hashes, never the full identity JSON:
+บันทึกเฉพาะ ID และ hash ห้ามบันทึก JSON ข้อมูลประจำตัวทั้งไฟล์:
 
     $baseline = [pscustomobject]@{
         AgentID = (Get-Content -LiteralPath $meta.paths.identity -Raw | ConvertFrom-Json).agent_id
@@ -72,11 +75,13 @@ Record only ID and hashes, never the full identity JSON:
     }
     $baseline | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $meta.paths.root 'acceptance-baseline.json')
 
-For migration, compare Get-FileHash on the explicit source identity with the
-installed identity. First migration into an empty destination must preserve all
-bytes. An already-existing equal identity remains authoritative.
+สำหรับการย้าย ให้เปรียบเทียบ Get-FileHash ของไฟล์ข้อมูลประจำตัวต้นทางที่ระบุ
+กับไฟล์ที่ติดตั้ง การย้ายครั้งแรกไปยังปลายทางว่างต้องเก็บทุกไบต์ไว้
+หากปลายทางมีข้อมูลประจำตัวตรงกันอยู่แล้ว ให้ถือไฟล์นั้นเป็นข้อมูลหลัก
 
-## 3. Administrator control and graceful Stop
+<a id="3-administrator-control-and-graceful-stop"></a>
+
+## 3. การควบคุมของผู้ดูแลและการหยุดตามขั้นตอน
 
     .\scripts\dev-service.ps1 -Action Stop
     Start-Sleep -Seconds 40
@@ -85,15 +90,17 @@ bytes. An already-existing equal identity remains authoritative.
     .\scripts\dev-service.ps1 -Action Restart
     Get-Content -LiteralPath $meta.paths.log -Tail 100
 
-Expect Stop to remain Stopped after 40 seconds, Start/Restart to work, and normal
-stop/resource-cleanup log entries. Exercise cancellation while a controlled
-download or scan runs. Use mock power commands only. Do not claim a successful
-Windows shutdown or real Defender service cancellation solely from mock tests.
+คาดหวังว่า Stop แล้วยังคง Stopped หลัง 40 วินาที Start/Restart ทำงานได้
+และมีล็อกหยุด/คืนทรัพยากรตามปกติ ทดลองยกเลิกขณะดาวน์โหลดหรือสแกนที่ควบคุมได้กำลังทำงาน
+ใช้คำสั่งพลังงานแบบ mock เท่านั้น ห้ามสรุปว่าปิด Windows สำเร็จหรือยกเลิกบริการ Defender จริงได้
+จากการทดสอบ mock เพียงอย่างเดียว
 
-## 4. Standard User Service/process protection
+<a id="4-standard-user-serviceprocess-protection"></a>
 
-Switch accounts manually when ready. Use an actual Standard User, not merely
-an unelevated Administrator. Do not elevate any of these attempts:
+## 4. การป้องกัน Service/โปรเซสจาก Standard User
+
+สลับบัญชีด้วยตนเองเมื่อพร้อม ใช้ Standard User จริง ไม่ใช่เพียง Administrator ที่ยังไม่ได้ยกระดับสิทธิ์
+ห้ามยกระดับสิทธิ์ในการทดสอบเหล่านี้:
 
     sc.exe queryex ThesisAgentDev
     Stop-Service -Name ThesisAgentDev -ErrorAction Stop
@@ -101,31 +108,31 @@ an unelevated Administrator. Do not elevate any of these attempts:
     sc.exe config ThesisAgentDev start= disabled
     sc.exe delete ThesisAgentDev
 
-Run attempts individually and record their results. Expect Access denied for
-mutations and continued Service operation. Services UI -> ThesisAgentDev -> Stop
-should be unavailable or denied. In Task Manager -> Details, identify this exact
-Service process, attempt End task, and expect Access denied.
+ลองทีละคำสั่งและบันทึกผล การแก้ไขต้องได้ Access denied และ Service ต้องยังทำงานต่อ
+ในหน้าจอ Services -> ThesisAgentDev -> Stop ต้องเลือกไม่ได้หรือถูกปฏิเสธ
+ใน Task Manager -> Details ให้ระบุโปรเซส Service นี้ให้แน่นอน ลอง End task แล้วต้องได้ Access denied
 
-For the PowerShell process test, obtain the PID through the Service record,
-confirm it is still that Service, and use it rather than a guessed PID:
+สำหรับการทดสอบโปรเซสผ่าน PowerShell ให้อ่าน PID จากข้อมูล Service
+ยืนยันว่ายังเป็น Service เดิม และใช้ค่านั้น ห้ามเดา PID:
 
     $agentService = Get-CimInstance Win32_Service -Filter "Name='ThesisAgentDev'"
     if ($null -eq $agentService -or $agentService.ProcessId -eq 0) { throw 'Service is not running' }
     Stop-Process -Id $agentService.ProcessId -Force -ErrorAction Stop
 
-Expect Access denied. If an attempt unexpectedly succeeds, stop the acceptance
-run and retain the failure evidence; do not label other protection checks PASS.
+คาดหวัง Access denied หากการทดสอบใดสำเร็จโดยไม่คาดหวัง ให้หยุดทดสอบยอมรับและเก็บหลักฐานความล้มเหลว
+ห้ามระบุว่าการตรวจการป้องกันอื่น ๆ ผ่าน
 
-## 5. Standard User file protection without changing identity
+<a id="5-standard-user-file-protection-without-changing-identity"></a>
 
-To avoid destroying an identity if permissions are wrong, request write/delete
-access without performing any write, truncate, rename or delete. An Administrator
-should first stop the Service and verify the four target files exist, so sharing
-violations cannot be mistaken for ACL denial. Then use the Standard User session.
+## 5. การป้องกันไฟล์จาก Standard User โดยไม่เปลี่ยนข้อมูลประจำตัว
 
-The following calls use OPEN_EXISTING with no delete-on-close flag; dispose all
-handles immediately. This checks granted access, not an actual deletion workflow
-([CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)).
+เพื่อไม่ทำลายข้อมูลประจำตัวหากสิทธิ์ผิด ให้ขอสิทธิ์เขียน/ลบโดยไม่เขียน ตัดเนื้อหา เปลี่ยนชื่อ หรือลบจริง
+ผู้ดูแลควรหยุด Service ก่อนและยืนยันว่าไฟล์เป้าหมายทั้งสี่มีอยู่
+เพื่อไม่ตีความ sharing violation ผิดว่าเป็นการปฏิเสธจาก ACL แล้วจึงใช้เซสชัน Standard User
+
+คำสั่งด้านล่างใช้ OPEN_EXISTING โดยไม่มีแฟล็กลบเมื่อปิด handle ให้ปิด handle ทันทีทุกครั้ง
+เป็นการตรวจสิทธิ์ที่ได้รับ ไม่ใช่ทดสอบขั้นตอนลบจริง
+([CreateFileW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew))
 
     Add-Type @'
     using System;
@@ -157,22 +164,24 @@ handles immediately. This checks granted access, not an actual deletion workflow
         }
     }
 
-Expect error 5 (Access denied) for both GENERIC_WRITE and DELETE. Error 2
-(missing file) or 32 (sharing violation) is inconclusive, not PASS.
+คาดหวังข้อผิดพลาด 5 (Access denied) สำหรับทั้ง GENERIC_WRITE และ DELETE
+ข้อผิดพลาด 2 (ไม่มีไฟล์) หรือ 32 (sharing violation) ยังสรุปไม่ได้ ไม่ถือว่าผ่าน
 
-For actual Explorer edit/replace/rename/delete acceptance, use a disposable VM
-snapshot and the Administrator-only backup. Attempt those operations individually
-against the installed binary, identity, .env and enrollment state as Standard
-User. Expect denial. If anything succeeds, stop and restore the snapshot/backup;
-never provision a replacement identity to conceal the failure.
+สำหรับทดสอบแก้/แทนที่/เปลี่ยนชื่อ/ลบจริงผ่าน Explorer ให้ใช้ snapshot ของ VM ที่ใช้ทิ้งได้
+และข้อมูลสำรองที่เฉพาะ Administrator เข้าถึงได้ ลองแต่ละการกระทำกับ binary ที่ติดตั้ง
+ข้อมูลประจำตัว .env และสถานะลงทะเบียนด้วย Standard User ทุกกรณีต้องถูกปฏิเสธ
+หากกรณีใดสำเร็จ ให้หยุดแล้วคืน snapshot/ข้อมูลสำรอง
+ห้ามเตรียมข้อมูลประจำตัวใหม่เพื่อกลบความล้มเหลว
 
-An Administrator then starts the Service again and verifies identity hashes.
+จากนั้นให้ผู้ดูแลเริ่ม Service อีกครั้งและตรวจ hash ของข้อมูลประจำตัว
 
-## 6. Reboot, Auto Start and identity stability
+<a id="6-reboot-auto-start-and-identity-stability"></a>
 
-Choose the reboot time manually. Leave Windows at the login screen long enough
-to observe the registered Agent becoming Online from another administration PC.
-Record timestamps there, then log in and compare with the Service log and boot:
+## 6. การรีบูต การเริ่มอัตโนมัติ และความคงเดิมของข้อมูลประจำตัว
+
+เลือกเวลารีบูตด้วยตนเอง ปล่อย Windows ค้างที่หน้าเข้าสู่ระบบนานพอ
+ให้สังเกตจากเครื่องผู้ดูแลอีกเครื่องว่า Agent ที่ลงทะเบียนไว้เปลี่ยนเป็น Online
+บันทึกเวลาจากฝั่งนั้น แล้วเข้าสู่ระบบเพื่อเทียบกับล็อก Service และเวลาบูต:
 
     (Get-CimInstance Win32_OperatingSystem).LastBootUpTime
     Get-Service -Name ThesisAgentDev
@@ -183,31 +192,33 @@ Record timestamps there, then log in and compare with the Service log and boot:
     if ((Get-FileHash -LiteralPath $meta.paths.identity -Algorithm SHA256).Hash -ne $baseline.IdentitySHA256) { throw 'Identity bytes changed' }
     if ((Get-FileHash -LiteralPath $meta.paths.config -Algorithm SHA256).Hash -ne $baseline.ConfigSHA256) { throw 'Config changed' }
 
-Reinitialize $meta using the installed executable's --service-info in a new
-terminal if necessary. Agent log timestamps are UTC. A Service observed Running
-after login is insufficient evidence of startup before login.
+หากเปิดเทอร์มินัลใหม่ ให้ตั้ง $meta อีกครั้งด้วย --service-info ของ executable ที่ติดตั้งแล้วตามจำเป็น
+เวลาล็อก Agent เป็น UTC การเห็น Service เป็น Running หลังล็อกอิน
+ไม่เพียงพอที่จะพิสูจน์ว่าเริ่มทำงานก่อนล็อกอิน
 
-## 7. Infrastructure outage and reconnect
+<a id="7-infrastructure-outage-and-reconnect"></a>
 
-On dedicated test infrastructure, arrange REST unavailability, then manually
-reboot the provisioned Agent machine. Expect locally Running plus retry logs,
-no token prompt and unchanged identity. Restore REST: /exists must return 204
-and the Agent should connect to WS automatically. A deliberate 404 instead
-requires administrative provisioning with the same identity.
+## 7. ระบบภายนอกขัดข้องและการเชื่อมต่อใหม่
 
-Restart the test WebSocket server while connected. Expect bounded varied retry
-delays and reconnection using the same initial Agent ID. If the TCP/WS handshake
-fails silently, dial/heartbeat timeouts also contribute to total recovery time.
+บนระบบทดสอบเฉพาะ ให้ทำให้ REST ใช้งานไม่ได้ แล้วรีบูตเครื่อง Agent ที่เตรียมไว้ด้วยตนเอง
+คาดหวังสถานะ Running ในเครื่องพร้อมล็อกลองใหม่ ไม่มีการถามโทเคน และข้อมูลประจำตัวไม่เปลี่ยน
+เมื่อคืน REST แล้ว /exists ต้องคืน 204 และ Agent เชื่อมต่อ WS เอง
+หากจงใจให้คืน 404 ต้องให้ผู้ดูแลเตรียมติดตั้งด้วยข้อมูลประจำตัวเดิม
 
-For several machines, provision each with its own identity and the same WS
-server URL/port. Start them together and verify distinct registry entries and
-independent reconnects. Cloning one identity tests duplicate-session replacement,
-not multi-Agent support.
+เริ่มเซิร์ฟเวอร์ WebSocket ทดสอบใหม่ขณะเชื่อมต่อ คาดหวังเวลาลองใหม่ที่สุ่มและมีขอบเขต
+แล้วเชื่อมต่อด้วย Agent ID เดิม หาก TCP/WS handshake ล้มเหลวโดยไม่มีการตอบกลับ
+เวลารอเชื่อมต่อ/heartbeat หมดอายุจะมีผลต่อเวลารวมที่ใช้กู้คืนด้วย
 
-## 8. Controlled crash recovery
+สำหรับหลายเครื่อง ให้เตรียมแต่ละเครื่องด้วยข้อมูลประจำตัวของตนเองและ URL/พอร์ต WS เดียวกัน
+เริ่มพร้อมกันและตรวจว่ามีรายการ Agent แยกกันและเชื่อมต่อใหม่อย่างอิสระ
+การโคลนข้อมูลประจำตัวเดียวกันเป็นการทดสอบแทนที่เซสชันซ้ำ ไม่ใช่ทดสอบรองรับหลาย Agent
 
-Perform only on the designated disposable development machine as Administrator,
-after successful provisioning. Verify the exact Service process before killing it:
+<a id="8-controlled-crash-recovery"></a>
+
+## 8. การกู้คืนจากการล่มแบบควบคุม
+
+ทำเฉพาะเครื่องพัฒนาที่กำหนดและใช้ทิ้งได้ ด้วยสิทธิ์ Administrator หลังเตรียมติดตั้งสำเร็จ
+ยืนยันโปรเซส Service ให้ตรงก่อนยุติ:
 
     $agentService = Get-CimInstance Win32_Service -Filter "Name='ThesisAgentDev'"
     if ($null -eq $agentService -or $agentService.ProcessId -eq 0) { throw 'Service is not running' }
@@ -217,96 +228,98 @@ after successful provisioning. Verify the exact Service process before killing i
     Start-Sleep -Seconds 8
     sc.exe queryex ThesisAgentDev
 
-Expect a new PID after the first configured 5s delay. On the second crash within
-the same failure-count window, wait at least 35s for the 30s restart. A third
-crash should remain stopped. Re-query and validate PID/path before each attempt;
-never reuse an old PID. Failure count resets after 24 hours without failures,
-so record previous crashes when interpreting the sequence.
+คาดหวัง PID ใหม่หลังเวลาหน่วงครั้งแรก 5 วินาทีที่ตั้งไว้
+เมื่อล่มครั้งที่สองในช่วงนับความล้มเหลวเดียวกัน ให้รออย่างน้อย 35 วินาทีสำหรับการเริ่มใหม่หลัง 30 วินาที
+ครั้งที่สามควรคงสถานะหยุด สอบถามและยืนยัน PID/พาธใหม่ก่อนทุกครั้ง ห้ามใช้ PID เก่าซ้ำ
+ตัวนับรีเซ็ตเมื่อไม่มีความล้มเหลวครบ 24 ชั่วโมง จึงต้องบันทึกการล่มก่อนหน้าประกอบการแปลผลลำดับด้วย
 
-Use Administrator Start after investigating the final stopped state. Re-run
-the intentional Stop test separately; it must remain stopped.
+หลังตรวจสอบสถานะหยุดสุดท้ายแล้ว ให้ผู้ดูแล Start เอง
+ทดสอบ Stop โดยตั้งใจแยกอีกครั้ง โดยต้องคงสถานะหยุด
 
-## 9. Console regression and removal
+<a id="9-console-regression-and-removal"></a>
 
-Use an isolated console installation with its correct existing identity/config.
-Run go run ., verify attached terminal plus file logging, Ctrl+C, and the existing
-performance/process/download/scan/mock-power flows. Check screen JPEG delivery
-in console mode. In Service mode with an interactive user and Desktop Helper,
-verify Named Pipe JPEG delivery through the Service-owned WebSocket. Without the
-Helper, requests must leave the Service alive and resume when the Helper returns.
+## 9. ตรวจผลกระทบต่อ Console และถอนทะเบียน
 
-When finished with this development Service:
+ใช้การติดตั้ง Console แยกพร้อมข้อมูลประจำตัว/การตั้งค่าเดิมที่ถูกต้อง
+รัน go run . ตรวจล็อกเทอร์มินัลและไฟล์ Ctrl+C และขั้นตอนเดิมของข้อมูลประสิทธิภาพ/โปรเซส/
+ดาวน์โหลด/สแกน/พลังงานแบบ mock ตรวจการส่งภาพ JPEG ใน Console
+สำหรับ Service ที่มีผู้ใช้ล็อกอินและ Desktop Helper ให้ตรวจการส่ง JPEG ผ่าน Named Pipe
+ต่อไปยัง WebSocket ที่ Service ดูแล หากไม่มี Helper คำขอต้องไม่ทำให้ Service หยุด
+และต้องกลับมาทำงานได้เมื่อ Helper กลับมา
+
+เมื่อใช้งาน Service สำหรับพัฒนานี้เสร็จ:
 
     .\scripts\dev-service.ps1 -Action Remove
     sc.exe query ThesisAgentDev
 
-Expect Service-not-installed (1060) after removal, with identity/config/logs and
-the Event Log source retained. No recursive data deletion is part of Remove.
-Record the actual results of each scenario; this document is a procedure, not
-evidence that any of these scenarios passed.
+หลังถอนทะเบียนคาดหวัง Service-not-installed (1060) โดยยังเก็บข้อมูลประจำตัว/การตั้งค่า/ล็อก
+และแหล่ง Event Log ไว้ Remove ไม่มีการลบข้อมูลแบบเวียนซ้ำ
+บันทึกผลจริงของแต่ละสถานการณ์ เอกสารนี้เป็นขั้นตอน ไม่ใช่หลักฐานว่าสถานการณ์ใดผ่านแล้ว
 
-## Phase 5B.1 ACL acceptance on one Lab PC
+<a id="phase-5b1-acl-acceptance-on-one-lab-pc"></a>
 
-Status: **NOT VERIFIED**. Run only on a designated disposable Lab PC/VM after
-reviewing [runtime ACL security](runtime-acl-security.md). Never deliberately expose
-a real machine private key to Users/Everyone for this test. Use a disposable fixture
-identity and take an Administrator-only snapshot/backup before changing ACLs.
+## การทดสอบยอมรับ ACL ของ Phase 5B.1 บนเครื่อง Lab หนึ่งเครื่อง
 
-1. On the Lab PC, run `go test -v ./internal/protectedpath` from an elevated test
-   terminal if Go is available. Confirm `TestTrustedStartupScopePreflightAndRepair` and
-   `TestRepairedFixtureReachesAuthoritativePrivateKeyLoader` execute, without SKIP.
-   They use temporary fixtures only. The implementation session could not verify
-   these two elevated integration suites.
-2. Deploy the reviewed `build/thesis-agent.exe` and `build/thesis-agent-desktop.exe`
-   with the existing update workflow. Resolve metadata with `--service-info`.
-   Record SHA-256 of identity, config and enrollment files without printing contents,
-   plus Agent ID/public-key fingerprint. Verify normal startup and `acl_canonical`.
-3. Stop the owned Service. On the disposable installation, change a trusted-only
-   DACL (e.g. remove SYSTEM's ACE while retaining Administrators Full Control and
-   trusted ownership). Start it; expect drift → repair_started → repair_success,
-   followed by normal authentication and unchanged identity/config hashes.
-   Compare enrollment bytes immediately around ACL-only Repair; ordinary runtime
-   enrollment verification may update the marker under its existing semantics.
-4. Restart once more: expect canonical verification with no repair. Confirm Standard
-   User cannot read sensitive runtime files or modify the protected tree.
-5. With the Service stopped, run `scripts/dev-service.ps1 -Action Repair` with the
-   reviewed binary. It must preserve hashes and leave the Service stopped. While
-   Service is Running, the same action must refuse without stopping it.
-6. Restore the disposable snapshot between unsafe scenarios. With Service stopped,
-   test an untrusted owner, Users read ACE, reparse/junction, critical-file directory
-   and unreadable/unsupported ACL. Both Service startup and Repair must refuse;
-   expect the exact reason, no ACL reset, no content changes and nonzero maintenance
-   exit status. Stop here for manual security review; never re-enroll/regenerate to
-   hide a failure. Ensure no unrelated path was altered by reparse tests.
-7. Check Application events from `ThesisAgentDev` for early refusal, including when
-   file logging cannot initialize. After safe successful startup, check replay of
-   repair results in agent.log. If Event Log delivery fails, refusal must still hold.
-8. With the interactive Desktop Helper running, check screenshots/streamed JPEG,
-   authenticated WebSocket, heartbeat/performance/process/download/mock-power flows,
-   and the existing update task registration. Reboot only on the Lab PC when approved
-   by its operator; verify automatic Service startup and identity stability.
+สถานะ: **ยังไม่ได้ยืนยัน (NOT VERIFIED)** ทำเฉพาะเครื่อง Lab/VM ที่กำหนดและใช้ทิ้งได้
+หลังอ่าน [ความปลอดภัย ACL ของรันไทม์](runtime-acl-security.md)
+ห้ามจงใจเปิดกุญแจส่วนตัวจริงของเครื่องให้ Users/Everyone อ่านเพื่อทดสอบ
+ใช้ข้อมูลประจำตัวสำหรับทดสอบที่ใช้ทิ้งได้ และเก็บ snapshot/ข้อมูลสำรองที่เฉพาะ Administrator เข้าถึงได้
+ก่อนเปลี่ยน ACL
 
-Record actual results separately. Successful builds/unit tests do not establish
-LocalSystem behavior, effective user isolation, Event Viewer delivery or live
-Desktop Capture/update compatibility.
+1. บนเครื่อง Lab หากมี Go ให้รัน `go test -v ./internal/protectedpath` จากเทอร์มินัลทดสอบแบบ elevated
+   ยืนยันว่า `TestTrustedStartupScopePreflightAndRepair` และ
+   `TestRepairedFixtureReachesAuthoritativePrivateKeyLoader` ทำงานจริงโดยไม่ SKIP
+   ทั้งคู่ใช้เฉพาะข้อมูลทดสอบชั่วคราว เซสชันที่พัฒนายังไม่ได้ยืนยันชุดทดสอบร่วมสองชุดนี้ที่ต้องใช้สิทธิ์ elevated
+2. ติดตั้ง `build/thesis-agent.exe` และ `build/thesis-agent-desktop.exe` ที่ตรวจทานแล้วผ่านขั้นตอนอัปเดตเดิม
+   อ่านข้อมูลกำกับด้วย `--service-info` บันทึก SHA-256 ของข้อมูลประจำตัว การตั้งค่า และสถานะลงทะเบียน
+   โดยไม่พิมพ์เนื้อหา พร้อม Agent ID/ลายนิ้วมือกุญแจสาธารณะ ตรวจ startup ปกติและ `acl_canonical`
+3. หยุด Service ของระบบนี้ บนการติดตั้งที่ใช้ทิ้งได้ให้เปลี่ยน DACL ที่มีเฉพาะผู้รับสิทธิ์ที่เชื่อถือได้
+   เช่น ลบ ACE ของ SYSTEM แต่เก็บ Administrators Full Control และเจ้าของที่เชื่อถือได้ไว้
+   เริ่ม Service แล้วคาดหวังความคลาดเคลื่อน → repair_started → repair_success
+   ตามด้วยการยืนยันตัวตนปกติและ hash ข้อมูลประจำตัว/การตั้งค่าที่ไม่เปลี่ยน
+   เทียบไบต์สถานะลงทะเบียนก่อนและหลัง Repair เฉพาะ ACL ทันที
+   เพราะการตรวจลงทะเบียนระหว่างรันตามปกติอาจปรับไฟล์สถานะตามพฤติกรรมเดิม
+4. เริ่มใหม่อีกครั้ง ต้องตรวจผ่านตามมาตรฐานโดยไม่ซ่อม
+   ยืนยันว่า Standard User อ่านไฟล์รันไทม์สำคัญหรือแก้ต้นไม้ที่ป้องกันไว้ไม่ได้
+5. ขณะ Service หยุด รัน `scripts/dev-service.ps1 -Action Repair` ด้วย binary ที่ตรวจทานแล้ว
+   ต้องคง hash และสถานะหยุด หาก Service เป็น Running คำสั่งเดียวกันต้องปฏิเสธโดยไม่หยุด Service
+6. คืน snapshot ระหว่างสถานการณ์ไม่ปลอดภัย ขณะ Service หยุด ให้ทดสอบเจ้าของที่ไม่น่าเชื่อถือ
+   ACE ที่ให้ Users อ่าน, reparse/junction, พาธไฟล์สำคัญที่กลายเป็นไดเรกทอรี และ ACL ที่อ่านไม่ได้/ไม่รองรับ
+   ทั้ง startup และ Repair ต้องปฏิเสธ ระบุเหตุผลตรงกรณี ไม่รีเซ็ต ACL ไม่เปลี่ยนเนื้อหา
+   และคำสั่งบำรุงรักษาต้องคืน exit status ที่ไม่ใช่ศูนย์
+   หยุดเพื่อให้ผู้ดูแลตรวจสอบความปลอดภัย ห้ามลงทะเบียน/สร้างข้อมูลใหม่เพื่อกลบความล้มเหลว
+   ยืนยันว่าการทดสอบ reparse ไม่เปลี่ยนพาธอื่นที่ไม่เกี่ยวข้อง
+7. ตรวจ Application events จาก `ThesisAgentDev` เมื่อถูกปฏิเสธก่อนเริ่มทำงาน
+   รวมถึงกรณีเริ่มระบบล็อกไฟล์ไม่ได้ หลัง startup สำเร็จอย่างปลอดภัย ให้ตรวจการเขียนผลซ่อมที่พักไว้ลง agent.log
+   แม้ส่ง Event Log ไม่ได้ ระบบยังต้องปฏิเสธตามเดิม
+8. ขณะ Desktop Helper ทำงานในเซสชันผู้ใช้ ให้ตรวจภาพหน้าจอ/สตรีม JPEG, WebSocket ที่ยืนยันตัวตน,
+   heartbeat/ข้อมูลประสิทธิภาพ/โปรเซส/ดาวน์โหลด/พลังงานแบบ mock และการลงทะเบียน task ตามขั้นตอนอัปเดตเดิม
+   รีบูตเฉพาะเครื่อง Lab เมื่อผู้ดูแลเครื่องอนุมัติ ตรวจ Service เริ่มอัตโนมัติและข้อมูลประจำตัวคงเดิม
 
-### Bounded startup refinement acceptance
+บันทึกผลจริงแยกต่างหาก Build/unit test ที่ผ่านไม่ยืนยันพฤติกรรม LocalSystem
+การแยกสิทธิ์ผู้ใช้ที่มีผลจริง การส่ง Event Viewer หรือความเข้ากันได้ของ Desktop Capture/การอัปเดตจริง
 
-Status: **NOT VERIFIED on a Lab PC**. The non-elevated automated large-download test
-uses virtual metadata (20,000/50,000 children), not thousands of real disk files.
+<a id="bounded-startup-refinement-acceptance"></a>
 
-On the disposable Lab installation, add more than 8,192 fixture download files and
-nested stale `.part`/rotated-log files. Keep root, critical files, known backup and
-`logs`/`data`/`data/downloads` directory ACLs canonical. Startup and `-Action Repair`
-must succeed without enumerating or changing these children. Compare representative
-historical file bytes/ACLs before and after Repair. An unsafe critical backup or
-container must still fail closed, including a reparse on the downloads directory.
+### การทดสอบยอมรับการปรับขอบเขต startup ให้จำกัด
 
-Test actual use separately: make the active log or a download destination a fixture
-reparse/hard link/unsafe ACL. Log open or that download job must refuse without
-writing through it. An unsafe rotated slot refuses when rotation actually touches
-it, with Event Log diagnostics and no recursive logging/deadlock. Restore fixtures,
-then check log append/rotation and download/checksum/publish. Verify state writes,
-identity/config hashes, Desktop JPEG and the existing installer/update workflow.
-Run the elevated protected dynamic-I/O tests as well; they were skipped in the
-implementation session. Do not expose real key material during unsafe ACL tests.
+สถานะ: **ยังไม่ได้ยืนยันบนเครื่อง Lab (NOT VERIFIED on a Lab PC)**
+การทดสอบดาวน์โหลดจำนวนมากแบบอัตโนมัติโดยไม่ยกระดับสิทธิ์ใช้ข้อมูลกำกับจำลอง
+(รายการลูก 20,000/50,000 รายการ) ไม่ใช่ไฟล์จริงหลายพันไฟล์บนดิสก์
+
+บนการติดตั้ง Lab ที่ใช้ทิ้งได้ ให้เพิ่มไฟล์ดาวน์โหลดทดสอบมากกว่า 8,192 ไฟล์
+พร้อม `.part` เก่า/ล็อกที่หมุนเก็บแล้วในไดเรกทอรีซ้อนกัน
+คง ACL ของราก ไฟล์สำคัญ ไฟล์สำรองที่รู้จัก และไดเรกทอรี `logs`/`data`/`data/downloads` ให้ตรงมาตรฐาน
+startup และ `-Action Repair` ต้องสำเร็จโดยไม่ไล่รายชื่อหรือเปลี่ยนรายการลูกเหล่านี้
+เทียบไบต์/ACL ของตัวอย่างไฟล์เก่าก่อนและหลัง Repair
+ไฟล์สำรองสำคัญหรือไดเรกทอรีขอบเขตที่ไม่ปลอดภัยยังต้องถูกปฏิเสธ
+รวมถึง reparse ที่ตัวไดเรกทอรี downloads
+
+ทดสอบจุดใช้งานจริงแยกต่างหาก: ทำให้ล็อกปัจจุบันหรือปลายทางดาวน์โหลดทดสอบเป็น
+reparse/hard link/ACL ที่ไม่ปลอดภัย การเปิดล็อกหรืองานดาวน์โหลดนั้นต้องปฏิเสธโดยไม่เขียนผ่านวัตถุ
+ตำแหน่งล็อกสำรองที่ไม่ปลอดภัยต้องถูกปฏิเสธเมื่อการหมุนล็อกแตะตำแหน่งนั้นจริง
+พร้อมข้อความวินิจฉัยใน Event Log โดยไม่เกิดการเขียนล็อกวนซ้ำหรือ deadlock
+คืนข้อมูลทดสอบแล้วตรวจการเขียนต่อท้าย/หมุนล็อก และดาวน์โหลด/ตรวจ checksum/เผยแพร่ไฟล์
+ตรวจการเขียนสถานะ hash ข้อมูลประจำตัว/การตั้งค่า Desktop JPEG และขั้นตอนติดตั้ง/อัปเดตเดิม
+รันชุดทดสอบ I/O ที่ป้องกันไว้ด้วยสิทธิ์ elevated ด้วย เนื่องจากถูกข้ามในเซสชันที่พัฒนา
+ห้ามเปิดเผยกุญแจจริงระหว่างทดสอบ ACL ที่ไม่ปลอดภัย

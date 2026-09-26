@@ -1,49 +1,53 @@
-# Private-key protection สำหรับ Windows Service
+<a id="private-key-protection-สำหรับ-windows-service"></a>
 
-**Phase 5B.1:** Service ตรวจ runtime ACL ก่อนเปิด `.runtime.lock`/`.env`/identity
-และถือ lock ก่อนซ่อมเฉพาะ trusted drift; `-Action Repair` ใช้เกณฑ์เดียวกัน
-unsafe owner/ACE/path ต้องปฏิเสธและให้ผู้ดูแล review/recovery ไม่มี force override
-การซ่อมไม่อ่านหรือเขียน identity/key/enrollment contents ไม่ decrypt/re-encrypt
-และไม่เปลี่ยน `dpapi-machine-v1` ดู [runtime ACL security](runtime-acl-security.md)
-สำหรับ diagnostics, Event Log fallback, TOCTOU และสถานะ NOT VERIFIED ของ Lab
-Startup ตรวจเฉพาะ root, critical state, known identity backup และ container directories
-ไม่ scan historical downloads/logs แบบ recursive; dynamic objects ตรวจเมื่อใช้งาน
-ผ่าน Service-only Boundary และไม่ซ่อม ACL ของ historical file โดยอัตโนมัติ
+# การป้องกันกุญแจส่วนตัวสำหรับ Windows Service
 
-**Phase 4:** ตอนนี้ WebSocket ต้องใช้ Ed25519 signing แล้ว แม้ legacy identity
-ยังเริ่ม Service ได้ แต่จะ authenticate ไม่ผ่านจนกว่าจะ migrate อย่างชัดเจน
-ข้อจำกัดของ loader ใช้กับ Console ด้วย ดู [Agent authentication](agent-authentication.md).
-ข้อความด้านล่างอธิบายขอบเขตการเปลี่ยนแปลงของ Phase 2.
+**Phase 5B.1:** Service ตรวจ ACL ของรันไทม์ก่อนเปิด `.runtime.lock`/`.env`/ข้อมูลประจำตัว
+และถือ lock ก่อนซ่อมเฉพาะความคลาดเคลื่อนที่เชื่อถือได้ `-Action Repair` ใช้เกณฑ์เดียวกัน
+หากเจ้าของ/ACE/พาธไม่ปลอดภัยต้องปฏิเสธ ให้ผู้ดูแลตรวจสอบความปลอดภัยและกู้คืนเอง ไม่มีตัวเลือกบังคับข้าม
+การซ่อมไม่อ่านหรือเขียนเนื้อหาข้อมูลประจำตัว/กุญแจ/สถานะลงทะเบียน ไม่ถอดรหัสหรือเข้ารหัสใหม่
+และไม่เปลี่ยน `dpapi-machine-v1` ดู [ความปลอดภัย ACL ของรันไทม์](runtime-acl-security.md)
+สำหรับการวินิจฉัย Event Log สำรอง ข้อจำกัด TOCTOU และสถานะยังไม่ได้ยืนยัน (NOT VERIFIED) บน Lab
+startup ตรวจเฉพาะราก สถานะสำคัญ ไฟล์สำรองข้อมูลประจำตัวที่รู้จัก และไดเรกทอรีขอบเขต
+ไม่สแกนไฟล์ดาวน์โหลด/ล็อกเก่าแบบเวียนซ้ำ วัตถุที่เปลี่ยนแปลงระหว่างใช้งานตรวจ ณ จุดใช้จริง
+ผ่าน Boundary เฉพาะ Service และไม่ซ่อม ACL ของไฟล์เก่าโดยอัตโนมัติ
 
-Phase 2 เปลี่ยนเฉพาะการเก็บ/โหลด Ed25519 private key ไม่เพิ่ม WebSocket authentication
-และไม่เปลี่ยน REST, enrollment, public key ที่ Server เก็บ หรือ Service lifecycle
+**Phase 4:** ตอนนี้ WebSocket ต้องใช้ลายเซ็น Ed25519 แล้ว แม้ข้อมูลประจำตัวรูปแบบเก่า
+ยังเริ่ม Service ได้ แต่จะยืนยันตัวตนไม่ผ่านจนกว่าจะย้ายรูปแบบอย่างชัดเจน
+ข้อจำกัดของตัวโหลดใช้กับ Console ด้วย ดู [การยืนยันตัวตนของ Agent](agent-authentication.md)
+ข้อความด้านล่างอธิบายขอบเขตการเปลี่ยนแปลงของ Phase 2
+
+Phase 2 เปลี่ยนเฉพาะการเก็บ/โหลดกุญแจส่วนตัว Ed25519 ไม่เพิ่มการยืนยันตัวตน WebSocket
+และไม่เปลี่ยน REST การลงทะเบียน กุญแจสาธารณะที่เซิร์ฟเวอร์เก็บ หรือวงจรการทำงานของ Service
 
 ## รูปแบบและขอบเขต
 
-- ไม่มี `private_key_protection`: legacy user-scope DPAPI; ไม่ตีความว่าเป็น machine scope
-- `"private_key_protection": "dpapi-machine-v1"`: machine-scope DPAPI
-- Version ที่ไม่รู้จัก: fail closed โดยไม่สร้าง identity ทดแทน
-- Service startup โหลดโครงสร้างเท่านั้น; legacy ยังใช้ features เดิมได้พร้อม log แจ้ง migration
-- `service.LoadPrivateKey(path)` เป็น authoritative loader สำหรับ Service private-key use
-  ต้องใช้ machine metadata, protected ACL, decrypt สำเร็จ, private key ยาว 64 bytes
-  และ key ที่ derive จาก seed ต้องตรงทั้ง 64 bytes รวมถึง stored public key
-- Caller ต้องถือ runtime lock และ `clear(key)` เมื่อใช้เสร็จ ห้าม log key
-- Console สร้าง identity ใหม่แบบ user scope ตามเดิม เพราะ directory ของ Console
-  อาจไม่ได้มี ACL สำหรับ machine-scope secret
-- Provisioning identity ใหม่ของ Service ใช้ machine scope ตั้งแต่แรก ตรวจ ACL ก่อนสร้าง
-  Existing identity ไม่ถูกเปลี่ยนจากการ start/provision ซ้ำ
+- ไม่มี `private_key_protection`: DPAPI ระดับผู้ใช้แบบเดิม ไม่ตีความว่าเป็นระดับเครื่อง
+- `"private_key_protection": "dpapi-machine-v1"`: DPAPI ระดับเครื่อง
+- รุ่นที่ไม่รู้จัก: ปฏิเสธการทำงานโดยไม่สร้างข้อมูลประจำตัวทดแทน
+- startup ของ Service โหลดเฉพาะโครงสร้าง รูปแบบเก่ายังใช้ฟีเจอร์เดิมได้พร้อมล็อกแจ้งให้ย้ายรูปแบบ
+- `service.LoadPrivateKey(path)` เป็นตัวโหลดหลักสำหรับการใช้กุญแจส่วนตัวใน Service
+  ต้องมีข้อมูลกำกับแบบระดับเครื่อง ACL ที่ป้องกันไว้ ถอดรหัสสำเร็จ และกุญแจส่วนตัวยาว 64 ไบต์
+  กุญแจที่สร้างจาก seed ต้องตรงทั้ง 64 ไบต์ รวมถึงตรงกับกุญแจสาธารณะที่เก็บไว้
+- ผู้เรียกต้องถือ runtime lock และ `clear(key)` เมื่อใช้เสร็จ ห้ามบันทึกกุญแจลงล็อก
+- Console สร้างข้อมูลประจำตัวใหม่แบบระดับผู้ใช้ตามเดิม
+  เพราะไดเรกทอรีของ Console อาจไม่มี ACL ที่เหมาะกับข้อมูลลับระดับเครื่อง
+- การเตรียมข้อมูลประจำตัวใหม่ของ Service ใช้ระดับเครื่องตั้งแต่แรกและตรวจ ACL ก่อนสร้าง
+  ข้อมูลประจำตัวเดิมไม่ถูกเปลี่ยนจากการเริ่ม/เตรียมติดตั้งซ้ำ
 
-Machine scope เลือกที่ `CryptProtectData` ด้วย LOCAL_MACHINE + UI_FORBIDDEN;
-`CryptUnprotectData` ใช้ UI_FORBIDDEN โดยไม่ใส่ LOCAL_MACHINE
-ผู้ใช้ในเครื่องที่อ่าน machine ciphertext ได้อาจ decrypt ได้ จึงต้องรักษา ACL:
-owner SYSTEM/Administrators, อนุญาตเฉพาะสองกลุ่มนี้และสืบทอดสิทธิ์ให้ child files
-ตัวตรวจ ACL ปฏิเสธรูปแบบที่ไม่ตรงกับ profile ที่ provisioning script ใช้
-รวมถึง reparse points ตัว ValidateFile/ValidateDirectory และ private-key loader
-ยังตรวจอย่างเดียว ไม่เปลี่ยน ACL; startup repair เป็นขั้นตอนแยกที่ชัดเจน
+เลือกระดับเครื่องที่ `CryptProtectData` ด้วย LOCAL_MACHINE + UI_FORBIDDEN
+ส่วน `CryptUnprotectData` ใช้ UI_FORBIDDEN โดยไม่ใส่ LOCAL_MACHINE
+ผู้ใช้ในเครื่องที่อ่านข้อมูลเข้ารหัสระดับเครื่องได้อาจถอดรหัสได้ จึงต้องรักษา ACL:
+เจ้าของเป็น SYSTEM/Administrators อนุญาตเฉพาะสองกลุ่มนี้และสืบทอดสิทธิ์ให้ไฟล์ลูก
+ตัวตรวจ ACL ปฏิเสธรูปแบบที่ไม่ตรงกับข้อกำหนดที่สคริปต์เตรียมติดตั้งใช้ รวมถึง reparse point
+ตัว ValidateFile/ValidateDirectory และตัวโหลดกุญแจส่วนตัวยังตรวจอย่างเดียว ไม่เปลี่ยน ACL
+การซ่อมตอน startup เป็นขั้นตอนแยกชัดเจน
 ดู [Microsoft CryptProtectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)
 และ [CryptUnprotectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptunprotectdata)
 
-## คำสั่ง maintenance
+<a id="คำสั่ง-maintenance"></a>
+
+## คำสั่งบำรุงรักษา
 
 ```powershell
 & $phase2Executable --migrate-private-key-protection
@@ -52,86 +56,94 @@ owner SYSTEM/Administrators, อนุญาตเฉพาะสองกลุ
 
 เลือกทีละคำสั่ง ห้ามรวมกับ `--service`, `--provision`, `--migrate-identity`,
 `--configure-service` หรือ `--service-info`
-ใช้ binary ที่ build จาก Phase 2 และตั้งตัวแปร `$phase2Executable` เป็น absolute path
+ใช้ binary ที่ build จาก Phase 2 และตั้งตัวแปร `$phase2Executable` เป็นพาธแบบเต็ม
 
-ทั้งสองคำสั่งต้องใช้ elevated Administrator terminal, ตรวจว่า SCM Service หยุดแล้ว
-และถือ `.runtime.lock` คำสั่งไม่หยุด/kill Service ให้ ไม่เชื่อมต่อ Server ไม่ใช้ token
-และไม่แก้ enrollment state
+ทั้งสองคำสั่งต้องใช้เทอร์มินัล Administrator แบบ elevated ตรวจว่า SCM Service หยุดแล้ว
+และถือ `.runtime.lock` คำสั่งไม่หยุด/บังคับยุติ Service ให้ ไม่เชื่อมต่อเซิร์ฟเวอร์ ไม่ใช้โทเคน
+และไม่แก้สถานะลงทะเบียน
 
-`--migrate-identity PATH` เดิมยังเป็นการ copy identity ทุก byte ไป Service runtime
-ไม่มีการ decrypt/re-encrypt หาก import legacy identity ให้ทำ crypto migration แยกภายหลัง
-ห้าม import legacy source ซ้ำทับ identity ที่ migrate แล้ว; ใช้ runtime copy เป็นตัวจริง
+`--migrate-identity PATH` เดิมยังเป็นการคัดลอกข้อมูลประจำตัวทุกไบต์ไปยังรันไทม์ของ Service
+ไม่มีการถอดรหัส/เข้ารหัสใหม่ หากนำเข้าข้อมูลประจำตัวรูปแบบเก่า ให้ย้ายรูปแบบการเข้ารหัสแยกภายหลัง
+ห้ามนำเข้าต้นทางเก่าซ้ำทับข้อมูลประจำตัวที่ย้ายรูปแบบแล้ว ให้ใช้สำเนาในรันไทม์เป็นข้อมูลหลัก
 
-Migration อ่านเฉพาะ identity ใน runtime ที่ resolve จาก Windows Known Folders:
+การย้ายอ่านเฉพาะข้อมูลประจำตัวในรันไทม์ที่หาพาธผ่าน Windows Known Folders:
 `%ProgramData%\ThesisAgentDev\agent_config.json`
-ไม่รับ target path ที่ Desktop, Temp หรือ Downloads
+ไม่รับพาธเป้าหมายที่ Desktop, Temp หรือ Downloads
 
-## Migration และ backup
+<a id="migration-และ-backup"></a>
 
-1. ตรวจ ACL/runtime lock, อ่านและ validate legacy identity
-2. Decrypt ใน context ที่สร้าง blob เดิม แล้วตรวจ key pair จาก seed
-3. ตรวจ enrollment marker ถ้ามี: Agent ID และ SHA-256 ของ public key ต้องตรง
-4. สร้าง backup `agent_config.json.dpapi-user-v1.bak` ใน protected runtime เดียวกัน
-   ด้วย exclusive publication; backup เป็น ciphertext/JSON เดิมทุก byte
-5. ถ้ามี backup อยู่แล้ว ใช้ซ้ำได้เฉพาะเมื่อ bytes ตรงกับ identity ก่อน migration ทุก byte
-   ถ้าต่างหรืออ่านไม่ได้ให้หยุด ไม่ overwrite backup
-6. Protect private key เดิมด้วย machine scope แล้ว decrypt/validate candidate ใน memory
-7. ตรวจ identity/enrollment อีกครั้งก่อน atomic replacement
-8. ใช้ statefile เดิม: encrypted candidate อยู่ใน `.state-*.tmp` ใต้ protected directory,
-   flush แล้ว atomic replace; ไม่มี plaintext private key ลงไฟล์
-9. อ่านกลับ/decrypt/ตรวจ key pair และความคงเดิมของ ID, algorithm, public key และ private key
+## การย้ายรูปแบบและสำรองข้อมูล
 
-Unknown contributor JSON fields ยังคงค่าเดิม แต่ formatting/order ของ JSON อาจเปลี่ยน
-Backup เก็บต้นฉบับทุก byte; enrollment marker ไม่ถูกเขียนใหม่
-Identity ที่ migrate แล้วจะตรวจสอบและจบโดยไม่ rewrite หรือสร้าง backup เพิ่ม
+1. ตรวจ ACL/runtime lock อ่านและตรวจข้อมูลประจำตัวรูปแบบเก่า
+2. ถอดรหัสในบริบทที่สร้างข้อมูลเข้ารหัสเดิม แล้วตรวจคู่กุญแจจาก seed
+3. ตรวจไฟล์สถานะลงทะเบียนถ้ามี: Agent ID และ SHA-256 ของกุญแจสาธารณะต้องตรง
+4. สร้างไฟล์สำรอง `agent_config.json.dpapi-user-v1.bak` ในรันไทม์ที่ป้องกันไว้เดียวกัน
+   ด้วยการเผยแพร่แบบไม่ทับของเดิม ไฟล์สำรองเป็นข้อมูลเข้ารหัส/JSON เดิมทุกไบต์
+5. หากมีไฟล์สำรองแล้ว ใช้ซ้ำได้เฉพาะเมื่อไบต์ตรงกับข้อมูลประจำตัวก่อนย้ายทุกไบต์
+   หากต่างหรืออ่านไม่ได้ให้หยุด ไม่เขียนทับไฟล์สำรอง
+6. ป้องกันกุญแจส่วนตัวเดิมด้วยระดับเครื่อง แล้วถอดรหัส/ตรวจข้อมูลชุดใหม่ในหน่วยความจำ
+7. ตรวจข้อมูลประจำตัว/สถานะลงทะเบียนอีกครั้งก่อนแทนที่แบบ atomic
+8. ใช้ statefile เดิม: ข้อมูลชุดใหม่ที่เข้ารหัสอยู่ใน `.state-*.tmp` ใต้ไดเรกทอรีที่ป้องกันไว้
+   flush แล้วแทนที่แบบ atomic ไม่มีการเขียนกุญแจส่วนตัวที่ยังไม่เข้ารหัสลงไฟล์
+9. อ่านกลับ ถอดรหัส ตรวจคู่กุญแจ และตรวจว่า ID, algorithm, กุญแจสาธารณะและกุญแจส่วนตัวคงเดิม
 
-## Failure และ recovery
+ฟิลด์ JSON ที่ผู้ร่วมพัฒนาเพิ่มและระบบไม่รู้จักยังคงค่าเดิม แต่รูปแบบ/ลำดับของ JSON อาจเปลี่ยน
+ไฟล์สำรองเก็บต้นฉบับทุกไบต์ ไม่เขียนไฟล์สถานะลงทะเบียนใหม่
+ข้อมูลประจำตัวที่ย้ายรูปแบบแล้วจะถูกตรวจและจบโดยไม่เขียนใหม่หรือสร้างสำรองเพิ่ม
 
-- Failure ก่อน replacement: original identity ไม่เปลี่ยน; backup ที่สร้างแล้วเก็บไว้
-- Failure หลัง replacement: พยายาม atomic rollback แล้วอ่านเทียบ original ทุก byte
-- ข้อความ `original identity restored and verified` หมายถึงตรวจ bytes แล้วจริง
-- ถ้า restore/readback ไม่สำเร็จ แจ้ง `rollback could not be verified` และตำแหน่ง backup
-  ห้ามลบ backup หรือให้ระบบสร้าง identity ใหม่
-- การถูกหยุดก่อน/หลัง atomic publication อาจเหลือ original หรือ candidate ที่ครบชุด
-  โดยมี encrypted original backup อยู่ใน protected directory
-- การทดสอบ interruption เป็น fault injection ไม่ใช่หลักฐานว่าทดสอบไฟดับ/ดิสก์เสียจริง
-  การรับประกันนี้ไม่ครอบคลุม hardware/storage corruption ที่ทำลายทั้งสองสำเนา
+<a id="failure-และ-recovery"></a>
 
-หากต้อง manual recovery ให้ Administrator หยุด Service และ runtimes ทั้งหมด
-ตรวจ backup กับ hash ก่อน migration และใช้เครื่องมือกู้คืนที่ถือ `.runtime.lock`
-เพื่อเขียนสำเนา backup ลง staging file ใน protected directory, flush, atomic replace,
-แล้วตรวจ identity hash ว่าตรง backup ห้าม restore ด้วยการเขียนทับไฟล์ทีละส่วน
-Backup ยังเป็น user-scope เดิม ต้องเก็บ account/profile เดิมไว้เพื่อ decrypt
-หากไม่ได้เตรียมเครื่องมือ recovery ที่ถือ lock ให้หยุดไว้และให้ผู้ดูแลตรวจสอบก่อน
+## ความล้มเหลวและการกู้คืน
 
-## Manual Windows verification
+- ล้มเหลวก่อนแทนที่: ข้อมูลประจำตัวเดิมไม่เปลี่ยน เก็บไฟล์สำรองที่สร้างแล้วไว้
+- ล้มเหลวหลังแทนที่: พยายามย้อนกลับแบบ atomic แล้วอ่านเทียบต้นฉบับทุกไบต์
+- ข้อความ `original identity restored and verified` หมายถึงตรวจไบต์แล้วจริง
+- หากคืนข้อมูล/อ่านกลับไม่สำเร็จ แจ้ง `rollback could not be verified` และตำแหน่งไฟล์สำรอง
+  ห้ามลบไฟล์สำรองหรือให้ระบบสร้างข้อมูลประจำตัวใหม่
+- การถูกหยุดก่อน/หลังเผยแพร่แบบ atomic อาจเหลือต้นฉบับหรือข้อมูลชุดใหม่ที่ครบชุด
+  โดยยังมีไฟล์สำรองต้นฉบับที่เข้ารหัสอยู่ในไดเรกทอรีที่ป้องกันไว้
+- การทดสอบถูกขัดจังหวะใช้การจำลองข้อผิดพลาด ไม่ใช่หลักฐานว่าทดสอบไฟดับ/ดิสก์เสียจริง
+  การรับประกันนี้ไม่ครอบคลุมฮาร์ดแวร์/ที่เก็บข้อมูลเสียหายจนทำลายทั้งสองสำเนา
 
-ทำกับเครื่องทดสอบก่อน โดยใช้ elevated terminal ของ account ที่ decrypt legacy blob ได้
-Administrator อีกบัญชีไม่ได้ทำให้ decrypt user-scope blob เดิมได้โดยอัตโนมัติ
-หาก context เดิมใช้ไม่ได้ ให้หยุดตรวจสอบ ไม่ regenerate/re-enroll หรือผ่อน ACL
+หากต้องกู้คืนด้วยตนเอง ให้ Administrator หยุด Service และรันไทม์ทั้งหมด
+ตรวจไฟล์สำรองกับ hash ก่อนย้าย และใช้เครื่องมือกู้คืนที่ถือ `.runtime.lock`
+เพื่อเขียนสำเนาสำรองลงไฟล์พักในไดเรกทอรีที่ป้องกันไว้ จากนั้น flush และแทนที่แบบ atomic
+แล้วตรวจ hash ของข้อมูลประจำตัวว่าตรงไฟล์สำรอง ห้ามกู้คืนด้วยการเขียนทับไฟล์ทีละส่วน
+ไฟล์สำรองยังป้องกันระดับผู้ใช้เดิม ต้องเก็บบัญชี/โปรไฟล์เดิมไว้เพื่อถอดรหัส
+หากไม่ได้เตรียมเครื่องมือกู้คืนที่ถือ lock ให้หยุดไว้และให้ผู้ดูแลตรวจสอบก่อน
 
-1. Build binary Phase 2 แยกจาก installed executable; อย่าทับ Service ที่กำลังรัน
-2. อ่านชื่อ/path จาก `--service-info`, หยุด Service แล้วรอ Stopped
-3. บันทึก Agent ID, algorithm, public-key SHA-256, identity-file SHA-256
-   และ enrollment-file SHA-256 หากมี โดยไม่พิมพ์ JSON/ciphertext/private key
+<a id="manual-windows-verification"></a>
+
+## การตรวจยืนยันบน Windows ด้วยตนเอง
+
+ทำกับเครื่องทดสอบก่อน โดยใช้เทอร์มินัลแบบ elevated ของบัญชีที่ถอดรหัสข้อมูลรูปแบบเก่าได้
+Administrator อีกบัญชีไม่ได้ทำให้ถอดรหัสข้อมูลระดับผู้ใช้เดิมได้โดยอัตโนมัติ
+หากบริบทเดิมใช้ไม่ได้ ให้หยุดตรวจสอบ ห้ามสร้างข้อมูลใหม่/ลงทะเบียนใหม่หรือผ่อน ACL
+
+1. Build binary Phase 2 แยกจาก executable ที่ติดตั้ง อย่าทับ Service ที่กำลังทำงาน
+2. อ่านชื่อ/พาธจาก `--service-info` หยุด Service แล้วรอ Stopped
+3. บันทึก Agent ID, algorithm, SHA-256 ของกุญแจสาธารณะและไฟล์ข้อมูลประจำตัว
+   รวมถึง SHA-256 ของไฟล์สถานะลงทะเบียนถ้ามี โดยไม่พิมพ์ JSON/ข้อมูลเข้ารหัส/กุญแจส่วนตัว
 4. รัน `--migrate-private-key-protection` แล้วตรวจ exit code
-5. ตรวจ ID, algorithm และ public key ตรงเดิม; protection เป็น dpapi-machine-v1
-   ciphertext เปลี่ยน; backup hash ตรง identity hash ก่อน migration
-   และ enrollment-file hash ไม่เปลี่ยน
-6. รัน `--verify-private-key` ใน elevated original-account context
-7. **ตรวจ LocalSystem แยกต่างหาก**: ขณะ Service หยุด ให้ผู้ดูแลรันคำสั่ง verify
-   จาก one-shot task ที่ตั้งเป็น SYSTEM และใช้ binary/path ที่ตรวจสอบแล้ว
-   ตรวจ exit code และข้อความสำเร็จ โดยไม่ส่ง key ผ่าน arguments/output
-   การ verify ในบัญชี Administrator เพียงอย่างเดียวไม่พิสูจน์ LocalSystem compatibility
-8. รัน migration ซ้ำ: ต้องแจ้ง already migrated และ identity/backup hashes ไม่เปลี่ยน
-9. Deploy binary ตาม workflow เดิม แล้ว Start-Service ตรวจ feature เดิม/reconnect/Stop-Service
-10. Reboot ตรวจ Auto Start และ identity/backup/enrollment hashes คงเดิม
-11. ตรวจ Standard User ยังอ่าน identity/backup หรือแก้ runtime directory ไม่ได้
+5. ตรวจ ID, algorithm และกุญแจสาธารณะตรงเดิม การป้องกันเป็น dpapi-machine-v1
+   ข้อมูลเข้ารหัสเปลี่ยน hash ของไฟล์สำรองตรงกับ hash ข้อมูลประจำตัวก่อนย้าย
+   และ hash ของไฟล์สถานะลงทะเบียนไม่เปลี่ยน
+6. รัน `--verify-private-key` ในบริบทบัญชีเดิมแบบ elevated
+7. **ตรวจ LocalSystem แยกต่างหาก**: ขณะ Service หยุด ให้ผู้ดูแลรันคำสั่งตรวจยืนยัน
+   จาก task ที่ทำงานครั้งเดียวซึ่งตั้งบัญชีเป็น SYSTEM และใช้ binary/พาธที่ตรวจแล้ว
+   ตรวจ exit code และข้อความสำเร็จ โดยไม่ส่งกุญแจผ่านอาร์กิวเมนต์/ผลลัพธ์
+   การตรวจในบัญชี Administrator เพียงอย่างเดียวไม่พิสูจน์ว่าใช้กับ LocalSystem ได้
+8. รันการย้ายซ้ำ: ต้องแจ้ง already migrated และ hash ของข้อมูลประจำตัว/ไฟล์สำรองไม่เปลี่ยน
+9. ติดตั้ง binary ตามขั้นตอนเดิม แล้ว Start-Service ตรวจฟีเจอร์เดิม/การเชื่อมต่อใหม่/Stop-Service
+10. รีบูต ตรวจการเริ่มอัตโนมัติ และ hash ของข้อมูลประจำตัว/ไฟล์สำรอง/สถานะลงทะเบียนคงเดิม
+11. ตรวจว่า Standard User ยังอ่านข้อมูลประจำตัว/ไฟล์สำรอง หรือแก้ไดเรกทอรีรันไทม์ไม่ได้
 
-Service startup สำเร็จไม่ใช่หลักฐานว่า decrypt ได้ เพราะ Phase 2 จงใจไม่เพิ่ม
-private-key use เป็น startup requirement และยังไม่มี Phase 4 challenge/signing
+Service startup สำเร็จไม่ใช่หลักฐานว่าถอดรหัสได้ เพราะ Phase 2 ตั้งใจไม่เพิ่ม
+การใช้กุญแจส่วนตัวเป็นเงื่อนไข startup และยังไม่มี challenge/การลงลายเซ็นของ Phase 4
 
-## Automated checks
+<a id="automated-checks"></a>
+
+## การตรวจสอบอัตโนมัติ
 
 ```powershell
 go test ./...
@@ -141,7 +153,7 @@ git diff --check
 git diff --cached --check
 ```
 
-Windows tests ใช้ DPAPI จริงกับ key ที่สร้างสำหรับ tests ใน memory
-Migration fault-injection ใช้ filesystem จำลองใน memory จึงไม่สร้าง backup ของ key ใน Temp
-Statefile tests ใช้ marker data ที่ไม่ใช่ key เพื่อทดสอบ atomic writes/sharing violations
-SCM deployment, protected production paths, LocalSystem context และ reboot ต้องทดสอบแยก
+การทดสอบ Windows ใช้ DPAPI จริงกับกุญแจที่สร้างสำหรับทดสอบในหน่วยความจำ
+การจำลองข้อผิดพลาดระหว่างย้ายใช้ระบบไฟล์จำลองในหน่วยความจำ จึงไม่สร้างไฟล์สำรองกุญแจใน Temp
+การทดสอบ Statefile ใช้ข้อมูลสถานะที่ไม่ใช่กุญแจเพื่อทดสอบการเขียนแบบ atomic/sharing violation
+การติดตั้ง SCM พาธระบบจริงที่ป้องกันไว้ บริบท LocalSystem และการรีบูตต้องทดสอบแยก
