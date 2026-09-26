@@ -7,6 +7,12 @@ import (
 
 const Name = "ThesisAgentDev"
 
+// LegacyPrivateKeyBackupSuffix is shared by migration and startup ACL checks.
+const LegacyPrivateKeyBackupSuffix = ".dpapi-user-v1.bak"
+
+func (p Paths) IdentityBackup() string { return p.Identity + LegacyPrivateKeyBackupSuffix }
+func (p Paths) RuntimeLock() string    { return filepath.Join(p.Root, ".runtime.lock") }
+
 type Paths struct {
 	Install    string `json:"install"`
 	Root       string `json:"root"`

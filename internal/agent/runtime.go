@@ -16,6 +16,7 @@ import (
 	"ws-agent/download"
 	"ws-agent/internal/apppaths"
 	"ws-agent/internal/desktopcapture"
+	"ws-agent/internal/protectedpath"
 	"ws-agent/internal/runlock"
 	"ws-agent/internal/transportpolicy"
 	"ws-agent/service"
@@ -41,22 +42,52 @@ func Run(ctx context.Context, options Options, ready func()) (result error) {
 		}
 	}
 	if err != nil {
+		if options.Service {
+			newStartupDiagnostics().report(protectedpath.Diagnostic{Classification: "unsafe", Reason: "path_resolution_failed", Action: "fail_closed"})
+		}
 		return err
 	}
 	return runWithPaths(ctx, options, paths, ready)
 }
 
 func runWithPaths(ctx context.Context, options Options, paths apppaths.Paths, ready func()) (result error) {
+	var boundary *protectedpath.Boundary
+	if options.Service {
+		boundary = &protectedpath.Boundary{Root: paths.Root}
+	}
+	return runWithSecurity(ctx, options, paths, ready, protectedpath.EnsureRuntimeSecurity, boundary)
+}
+
+func runWithSecurity(ctx context.Context, options Options, paths apppaths.Paths, ready func(), ensure runtimeSecurity, boundary *protectedpath.Boundary) (result error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	machine := options.Service || options.Provision
-	if machine {
+	diagnostics := newStartupDiagnostics()
+	if boundary != nil {
+		boundary.Report = diagnostics.report
+	}
+	if options.Service {
+		defer func() {
+			if result != nil && !diagnostics.ready {
+				diagnostics.report(protectedpath.Diagnostic{Path: paths.Root, Classification: "unsafe", Reason: "startup_failed", Action: "fail_closed"})
+			}
+		}()
+	}
+	if machine && !options.Service {
 		// Scripts establish NTFS ACLs before any sensitive state is written.
 		if info, err := os.Stat(paths.Root); err != nil || !info.IsDir() {
 			return fmt.Errorf("protected runtime directory is missing; run scripts/dev-service.ps1 as Administrator")
 		}
 	}
-	unlock, err := runlock.Acquire(filepath.Join(paths.Root, ".runtime.lock"))
+	var unlock func()
+	var err error
+	if options.Service {
+		// Inspection precedes opening .env/logs/identity. Ensure holds the existing
+		// runtime byte lock BEFORE ACL mutation and returns it for runtime lifetime.
+		unlock, err = ensure(ctx, paths, diagnostics.report)
+	} else {
+		unlock, err = runlock.Acquire(filepath.Join(paths.Root, ".runtime.lock"))
+	}
 	if err != nil {
 		return err
 	}
@@ -74,12 +105,20 @@ func runWithPaths(ctx context.Context, options Options, paths apppaths.Paths, re
 			return fmt.Errorf("log path overlaps critical runtime state")
 		}
 	}
-	closeLogs, err := service.InitLoggingAt(logPath, !options.Service)
+	var closeLogs func()
+	if boundary != nil {
+		logBoundary := *boundary
+		logBoundary.Report = diagnostics.logBoundaryReport
+		closeLogs, err = service.InitProtectedLoggingAt(logPath, &logBoundary)
+	} else {
+		closeLogs, err = service.InitLoggingAt(logPath, !options.Service)
+	}
 	if err != nil {
 		return fmt.Errorf("initialize file logging: %w", err)
 	}
 	defer closeLogs()
 	if options.Service {
+		diagnostics.fileReady()
 		log.Printf("service starting")
 	}
 	defer func() {
@@ -163,7 +202,7 @@ func runWithPaths(ctx context.Context, options Options, paths apppaths.Paths, re
 	if machine && (!within(filepath.Join(paths.Root, "data"), downloadDir) || filepath.Clean(downloadDir) == filepath.Join(paths.Root, "data")) {
 		return fmt.Errorf("Service downloads must be in a subdirectory of protected runtime data")
 	}
-	if err := wsClient.ConfigureDownloads(download.Config{Directory: downloadDir, MaxConcurrent: cfg.MaxConcurrentDownloads, QueueSize: cfg.DownloadQueueSize, MaxFileSize: cfg.MaxDownloadSize, AllowHTTP: cfg.AllowLocalHTTPDownloads}, identity.AgentID); err != nil {
+	if err := wsClient.ConfigureDownloads(download.Config{Directory: downloadDir, MaxConcurrent: cfg.MaxConcurrentDownloads, QueueSize: cfg.DownloadQueueSize, MaxFileSize: cfg.MaxDownloadSize, AllowHTTP: cfg.AllowLocalHTTPDownloads, Boundary: boundary}, identity.AgentID); err != nil {
 		return err
 	}
 	if ready != nil {

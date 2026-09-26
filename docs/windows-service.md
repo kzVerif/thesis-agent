@@ -1,5 +1,14 @@
 # Windows Service lifecycle (development provisioning)
 
+**Phase 5B.1:** Service startup inspects fixed critical-state/container ACLs before opening state and
+repairs only trusted drift under the runtime lock. Administrative `-Action Repair`
+uses the same unsafe refusal policy, without a force option. See
+[runtime ACL security](runtime-acl-security.md) for startup order, diagnostics,
+Event Log fallback, TOCTOU limits and verification status.
+Historical downloads and rotated logs are not recursively inspected at startup;
+file count no longer imposes a startup gate. Service dynamic I/O checks the exact
+objects used by logging/rotation and download creation/checksum/publish/cleanup.
+
 **Phase 4 update:** Agent WebSocket now requires Ed25519 proof before normal
 traffic. Service startup still accepts legacy identity, but authenticated
 connectivity requires the explicit Phase 2 migration. See
@@ -121,11 +130,9 @@ A registration request whose response is lost may already have succeeded:
 retry provisioning with the same identity so /exists decides. Never delete the
 identity or create a replacement to work around an API error.
 
-DPAPI code/scope is unchanged. Existing ciphertext is copied as opaque data.
-New provisioning encrypts under the provisioning account, exactly as the current
-implementation did. LocalSystem is not claimed to be able to decrypt ciphertext
-created by that account. Current normal runtime does not decrypt it. A later
-signature/security feature must address that account migration explicitly.
+ACL repair does not change DPAPI scope or ciphertext. New Service identities use
+machine DPAPI; existing legacy identities require explicit migration before
+authenticated WebSocket use. The authoritative private-key loader is unchanged.
 
 ## Build and first installation
 
@@ -138,7 +145,8 @@ Build from the repository (not elevated):
 ```powershell
 go test ./...
 go vet ./...
-go build -o build/thesis-agent-dev.exe .
+go build -o build/thesis-agent.exe .
+go build -o build/thesis-agent-desktop.exe ./cmd/thesis-agent-desktop
 ```
 
 Prepare a reviewed service .env in a private location outside source control.
@@ -186,15 +194,17 @@ installer: a failed setup may leave protected directories or a stopped registrat
 .\scripts\dev-service.ps1 -Action Restart
 ```
 
-The script reads metadata from build/thesis-agent-dev.exe by default. Keep that
+The script reads metadata from build/thesis-agent.exe by default. Keep that
 development build, or supply -Executable with the installed executable path.
 Status shows account, startup mode, process ID, recovery configuration, and DACL.
 Running means local runtime initialized; check the log for enrollment/connectivity.
 
-For update/repair: Stop, rebuild, and run Install again. Existing persistent
-identity/config are reused; ConfigPath is optional after initial installation.
-Supplying IdentityPath again checks for conflict. Do not use NewIdentity on an
-existing installation.
+For updates, use the existing `update-agent.bat` workflow with both prebuilt
+binaries; it preserves identity/config and restarts the Desktop Helper task.
+For ACL-only repair, explicitly stop the owned Service and run `-Action Repair`.
+Unsafe states require manual security review/recovery, not an installer ACL reset.
+Install keeps its existing provisioning semantics; ConfigPath is optional after
+initial installation. Do not use NewIdentity on an existing installation.
 
 ```powershell
 .\scripts\dev-service.ps1 -Action Remove
@@ -278,19 +288,22 @@ Get-WinEvent -FilterHashtable @{LogName='Application'; ProviderName='ThesisAgent
 - Invalid identity/conflict: retain both files and investigate as Administrator.
 - Missing log: startup may have failed before file logging; inspect Application
   events, Service status, protected paths and ACLs.
-- Missing screen in Service: expected Session 0 limitation; runtime stays alive.
+- Missing screen in Service: check that the Desktop Helper is running in the
+  interactive user session; the Service itself runs in Session 0.
 - Service cannot start after update: check binary path, file ACL and startup error.
 - State already in use: stop the other runtime/provisioner; never delete a live lock.
 - A third crash stays stopped: expected bounded recovery; inspect and repair.
 - Environment differs between provisioning and SCM: review system variables and
   persistent .env; never rely on the administrator shell's temporary environment.
 
-## Screen limitation
+## Desktop Capture Helper
 
-Service intentionally supplies no interactive capture callback. Screen start
-requests log the Session 0 limitation and do not crash or emit a new wire message.
-Console retains CaptureScreenJPEG and binary JPEG streaming. A Session Worker,
-desktop/session redesign, and screen availability before login are deferred.
+Service delegates capture over the existing Named Pipe to the interactive Desktop
+Helper, receives JPEG in memory and sends the existing WebSocket binary frames.
+Console retains CaptureScreenJPEG. No interactive login/Helper means frames are
+temporarily unavailable; the Service stays alive. See
+[Desktop Capture Helper](desktop-capture-helper.md). ACL repair does not change
+this architecture, protocol or task-registration/update workflow.
 
 ## Manual Windows acceptance checklist
 

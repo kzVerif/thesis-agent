@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"ws-agent/internal/agent"
 	"ws-agent/internal/apppaths"
+	"ws-agent/internal/protectedpath"
 	"ws-agent/internal/runlock"
 	"ws-agent/internal/servicehost"
 	"ws-agent/service"
@@ -31,9 +32,16 @@ func run() error {
 	configure := flag.Bool("configure-service", false, "administrative development Service registration; use provisioning script")
 	migrateKey := flag.Bool("migrate-private-key-protection", false, "explicit administrative legacy-to-machine DPAPI migration; Service must be stopped")
 	verifyKey := flag.Bool("verify-private-key", false, "verify protected Service private key without changing identity or contacting servers; Service must be stopped")
+	repairACL := flag.Bool("repair-runtime-acl", false, "administrative safe runtime ACL repair only; use dev-service.ps1 -Action Repair")
 	flag.Parse()
 	if flag.NArg() != 0 {
 		return fmt.Errorf("unexpected command arguments")
+	}
+	if *repairACL {
+		if *migrateKey || *verifyKey || *configure || *provision || *serviceFlag || *metadata || *migrate != "" {
+			return fmt.Errorf("ACL repair cannot be combined with other modes")
+		}
+		return repairRuntimeACL()
 	}
 	if *migrateKey || *verifyKey {
 		if (*migrateKey && *verifyKey) || *configure || *provision || *serviceFlag || *metadata || *migrate != "" {
@@ -86,6 +94,36 @@ func run() error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return agent.Run(ctx, agent.Options{Provision: *provision, MigrationSource: *migrate}, nil)
+}
+
+func repairRuntimeACL() error {
+	if err := servicehost.RequireAdministrator(); err != nil {
+		return err
+	}
+	inService, err := servicehost.IsService()
+	if err != nil {
+		return err
+	}
+	if inService {
+		return fmt.Errorf("SCM cannot perform administrative ACL repair")
+	}
+	if err := servicehost.RequireStoppedOwnedService(); err != nil {
+		return err
+	}
+	paths, err := apppaths.Machine()
+	if err != nil {
+		return err
+	}
+	unlock, err := protectedpath.EnsureRuntimeSecurity(context.Background(), paths, func(d protectedpath.Diagnostic) {
+		fmt.Println(d.String())
+		servicehost.ReportStartupDiagnostic(d.String(), d.Action == "fail_closed")
+	})
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	fmt.Println("Runtime ACL verified; identity/config/enrollment contents untouched. Service remains stopped.")
+	return nil
 }
 
 func maintainPrivateKey(migrate bool) error {

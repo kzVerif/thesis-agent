@@ -1,5 +1,15 @@
 # Private-key protection สำหรับ Windows Service
 
+**Phase 5B.1:** Service ตรวจ runtime ACL ก่อนเปิด `.runtime.lock`/`.env`/identity
+และถือ lock ก่อนซ่อมเฉพาะ trusted drift; `-Action Repair` ใช้เกณฑ์เดียวกัน
+unsafe owner/ACE/path ต้องปฏิเสธและให้ผู้ดูแล review/recovery ไม่มี force override
+การซ่อมไม่อ่านหรือเขียน identity/key/enrollment contents ไม่ decrypt/re-encrypt
+และไม่เปลี่ยน `dpapi-machine-v1` ดู [runtime ACL security](runtime-acl-security.md)
+สำหรับ diagnostics, Event Log fallback, TOCTOU และสถานะ NOT VERIFIED ของ Lab
+Startup ตรวจเฉพาะ root, critical state, known identity backup และ container directories
+ไม่ scan historical downloads/logs แบบ recursive; dynamic objects ตรวจเมื่อใช้งาน
+ผ่าน Service-only Boundary และไม่ซ่อม ACL ของ historical file โดยอัตโนมัติ
+
 **Phase 4:** ตอนนี้ WebSocket ต้องใช้ Ed25519 signing แล้ว แม้ legacy identity
 ยังเริ่ม Service ได้ แต่จะ authenticate ไม่ผ่านจนกว่าจะ migrate อย่างชัดเจน
 ข้อจำกัดของ loader ใช้กับ Console ด้วย ดู [Agent authentication](agent-authentication.md).
@@ -28,7 +38,8 @@ Machine scope เลือกที่ `CryptProtectData` ด้วย LOCAL_MAC
 ผู้ใช้ในเครื่องที่อ่าน machine ciphertext ได้อาจ decrypt ได้ จึงต้องรักษา ACL:
 owner SYSTEM/Administrators, อนุญาตเฉพาะสองกลุ่มนี้และสืบทอดสิทธิ์ให้ child files
 ตัวตรวจ ACL ปฏิเสธรูปแบบที่ไม่ตรงกับ profile ที่ provisioning script ใช้
-รวมถึง reparse points โดยไม่เปลี่ยน ACL ให้เอง
+รวมถึง reparse points ตัว ValidateFile/ValidateDirectory และ private-key loader
+ยังตรวจอย่างเดียว ไม่เปลี่ยน ACL; startup repair เป็นขั้นตอนแยกที่ชัดเจน
 ดู [Microsoft CryptProtectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptprotectdata)
 และ [CryptUnprotectData](https://learn.microsoft.com/en-us/windows/win32/api/dpapi/nf-dpapi-cryptunprotectdata)
 

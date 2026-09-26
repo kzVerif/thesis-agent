@@ -7,7 +7,7 @@ Removal unregisters the Service and preserves binaries, identity, logs and confi
 [CmdletBinding()]
 param(
     [Parameter(Mandatory=$true)]
-    [ValidateSet('Install','Start','Status','Stop','Restart','Remove')]
+    [ValidateSet('Install','Start','Status','Stop','Restart','Remove','Repair')]
     [string]$Action,
     [string]$Executable = (Join-Path $PSScriptRoot '..\build\thesis-agent.exe'),
     [string]$ConfigPath,
@@ -23,7 +23,25 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 if ($PSVersionTable.PSEdition -ne 'Desktop') {
     throw 'Use Windows PowerShell 5.1 (powershell.exe), which supports creating directories with an ACL atomically.'
 }
+function Assert-NoReparseAncestors([string]$Path) {
+    $candidate = [IO.Path]::GetFullPath($Path)
+    while ($candidate) {
+        if (Test-Path -LiteralPath $candidate) {
+            $item = Get-Item -LiteralPath $candidate -Force
+            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Refusing reparse point: $candidate. Manual security review/recovery is required."
+            }
+        }
+        $parent = [IO.Directory]::GetParent($candidate)
+        if ($null -eq $parent) { break }
+        $candidate = $parent.FullName
+    }
+}
 $sourceExecutable = (Resolve-Path -LiteralPath $Executable).ProviderPath
+if ($Action -eq 'Repair') {
+    # Check before executing even the read-only metadata mode.
+    Assert-NoReparseAncestors $sourceExecutable
+}
 $metadataText = & $sourceExecutable --service-info
 if ($LASTEXITCODE -ne 0) { throw 'Unable to read Agent Service metadata.' }
 $metadata = $metadataText | ConvertFrom-Json
@@ -36,20 +54,6 @@ $adminSid = 'S-1-5-32-544'
 $systemSid = 'S-1-5-18'
 $callerSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 
-function Assert-NoReparseAncestors([string]$Path) {
-    $candidate = [IO.Path]::GetFullPath($Path)
-    while ($candidate) {
-        if (Test-Path -LiteralPath $candidate) {
-            $item = Get-Item -LiteralPath $candidate -Force
-            if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
-                throw "Refusing reparse point: $candidate"
-            }
-        }
-        $parent = [IO.Directory]::GetParent($candidate)
-        if ($null -eq $parent) { break }
-        $candidate = $parent.FullName
-    }
-}
 function Assert-OwnedPath([string]$Path) {
     $owner = (Get-Acl -LiteralPath $Path).GetOwner([Security.Principal.SecurityIdentifier]).Value
     if ($owner -notin @($adminSid,$systemSid,$callerSid)) {
@@ -123,6 +127,29 @@ Assert-NoReparseAncestors $runtimeRoot
 $existing = Get-OwnedService
 
 switch ($Action) {
+    'Repair' {
+        if ($ConfigPath -or $IdentityPath -or $NewIdentity) {
+            throw 'Repair cannot accept provisioning options.'
+        }
+        if ($serviceName -cne 'ThesisAgentDev' -or $null -eq $existing) {
+            throw 'Repair requires the installed, owned ThesisAgentDev Service.'
+        }
+        if ($existing.State -ne 'Stopped') {
+            throw 'Stop the owned ThesisAgentDev Service explicitly before Repair. Repair does not change Service lifecycle.'
+        }
+        if ($existing.StartName -ine 'LocalSystem') {
+            throw 'Repair requires the owned Service to run as LocalSystem.'
+        }
+        Assert-NoReparseAncestors $sourceExecutable
+        Assert-NoReparseAncestors $installedExecutable
+        # The shared handle-based Go engine performs classification, runtime
+        # locking, metadata-only repair and post-validation. Never Protect-Tree:
+        # that installer operation has intentionally different semantics.
+        & $sourceExecutable --repair-runtime-acl
+        if ($LASTEXITCODE -ne 0) {
+            throw 'ACL repair refused or failed. Review the reason above and Application Event Log; manual security review/recovery is required. No force override is available.'
+        }
+    }
     'Install' {
         if ($null -ne $existing -and $existing.State -ne 'Stopped') {
             throw 'Stop the existing development Service before repair/update.'

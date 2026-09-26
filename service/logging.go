@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"ws-agent/internal/protectedpath"
 )
 
 // InitLogging writes diagnostic output to a file so the Agent can run without
@@ -22,10 +23,22 @@ func InitLogging() (func(), error) {
 // InitLoggingAt retains file logging in both hosts. Console additionally mirrors
 // to stderr. Call the returned close only after all runtime workers have stopped.
 func InitLoggingAt(path string, console bool) (func(), error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+	return initLoggingAt(path, console, nil)
+}
+
+func InitProtectedLoggingAt(path string, boundary *protectedpath.Boundary) (func(), error) {
+	return initLoggingAt(path, false, boundary)
+}
+
+func initLoggingAt(path string, console bool, boundary *protectedpath.Boundary) (func(), error) {
+	mkdir := func(p string) error { return os.MkdirAll(p, 0700) }
+	if boundary != nil {
+		mkdir = boundary.EnsureDirectory
+	}
+	if err := mkdir(filepath.Dir(path)); err != nil {
 		return nil, err
 	}
-	file, err := newRotatingLog(path, 5<<20, 5)
+	file, err := newRotatingLogWithBoundary(path, 5<<20, 5, boundary)
 	if err != nil {
 		return nil, err
 	}
@@ -50,16 +63,25 @@ type rotatingLog struct {
 	limit, size int64
 	backups     int
 	file        *os.File
+	boundary    *protectedpath.Boundary
 }
 
 func newRotatingLog(path string, limit int64, backups int) (*rotatingLog, error) {
-	w := &rotatingLog{path: path, limit: limit, backups: backups}
+	return newRotatingLogWithBoundary(path, limit, backups, nil)
+}
+
+func newRotatingLogWithBoundary(path string, limit int64, backups int, boundary *protectedpath.Boundary) (*rotatingLog, error) {
+	w := &rotatingLog{path: path, limit: limit, backups: backups, boundary: boundary}
 	err := w.open()
 	return w, err
 }
 
 func (w *rotatingLog) open() error {
-	f, err := os.OpenFile(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
+	open := os.OpenFile
+	if w.boundary != nil {
+		open = w.boundary.OpenFile
+	}
+	f, err := open(w.path, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}
@@ -73,6 +95,17 @@ func (w *rotatingLog) open() error {
 }
 
 func (w *rotatingLog) rotate() error {
+	if w.boundary != nil {
+		paths := []string{w.path}
+		for i := 1; i <= w.backups; i++ {
+			paths = append(paths, fmt.Sprintf("%s.%d", w.path, i))
+		}
+		return w.boundary.WithFiles(paths, w.rotateFiles)
+	}
+	return w.rotateFiles()
+}
+
+func (w *rotatingLog) rotateFiles() error {
 	if err := w.file.Close(); err != nil {
 		return err
 	}

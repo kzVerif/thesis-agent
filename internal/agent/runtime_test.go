@@ -9,13 +9,24 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"ws-agent/internal/agentauth"
 	"ws-agent/internal/apppaths"
+	"ws-agent/internal/protectedpath"
+	"ws-agent/internal/runlock"
 	"ws-agent/service"
 )
+
+// Lifecycle/network fixtures isolate security through an explicit dependency.
+// Production runWithPaths always uses the Known Folder security implementation.
+func runFixture(ctx context.Context, options Options, paths apppaths.Paths, ready func()) error {
+	return runWithSecurity(ctx, options, paths, ready, func(_ context.Context, p apppaths.Paths, _ protectedpath.Reporter) (func(), error) {
+		return runlock.Acquire(filepath.Join(p.Root, ".runtime.lock"))
+	}, nil)
+}
 
 func runtimeFixture(t *testing.T) (apppaths.Paths, []byte) {
 	t.Helper()
@@ -53,7 +64,7 @@ func TestServiceRuntimeReadyDuringOutageAndStops(t *testing.T) {
 	defer cancel()
 	ready := make(chan struct{})
 	done := make(chan error, 1)
-	go func() { done <- runWithPaths(ctx, Options{Service: true}, paths, func() { close(ready) }) }()
+	go func() { done <- runFixture(ctx, Options{Service: true}, paths, func() { close(ready) }) }()
 	select {
 	case <-ready:
 	case err := <-done:
@@ -121,7 +132,7 @@ func TestServiceLegacyIdentityFailsAuthenticationAndStops(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { done <- runWithPaths(ctx, Options{Service: true}, paths, nil) }()
+	go func() { done <- runFixture(ctx, Options{Service: true}, paths, nil) }()
 	for i := 0; i < 2; i++ {
 		select {
 		case message := <-initial:
@@ -155,7 +166,7 @@ func TestServiceLocalConfigFailsBeforeReady(t *testing.T) {
 	t.Setenv("WS_SERVER_URL", "ws://127.0.0.1:1/ws")
 	t.Setenv("AGENT_LOG_PATH", paths.Identity)
 	ready := false
-	if err := runWithPaths(context.Background(), Options{Service: true}, paths, func() { ready = true }); err == nil || ready {
+	if err := runFixture(context.Background(), Options{Service: true}, paths, func() { ready = true }); err == nil || ready {
 		t.Fatal("unsafe logging path accepted")
 	}
 	after, _ := os.ReadFile(paths.Identity)
@@ -170,7 +181,7 @@ func TestProductionPolicyFailsBeforeIdentityChanges(t *testing.T) {
 	t.Setenv("AGENT_API_URL", "http://127.0.0.1:8080")
 	t.Setenv("WS_SERVER_URL", "ws://127.0.0.1:8081/ws")
 	ready := false
-	err := runWithPaths(context.Background(), Options{Service: true}, paths, func() { ready = true })
+	err := runFixture(context.Background(), Options{Service: true}, paths, func() { ready = true })
 	if err == nil || !strings.Contains(err.Error(), "must use https") || ready {
 		t.Fatalf("production config not rejected before ready: %v", err)
 	}

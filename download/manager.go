@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"ws-agent/internal/protectedpath"
 	"ws-agent/internal/transportpolicy"
 
 	"github.com/google/uuid"
@@ -32,6 +33,8 @@ type Config struct {
 	ProgressInterval time.Duration
 	HTTPClient       *http.Client
 	SpaceChecker     SpaceChecker
+	// Boundary is supplied only by the Service; it does not change the protocol.
+	Boundary *protectedpath.Boundary
 }
 type queuedJob struct {
 	ctx     context.Context
@@ -96,7 +99,11 @@ func NewManager(cfg Config, agentID string, send Sender) (*Manager, error) {
 		return nil, err
 	}
 	cfg.Directory = abs
-	if err := os.MkdirAll(abs, 0700); err != nil {
+	mkdir := func(p string) error { return os.MkdirAll(p, 0700) }
+	if cfg.Boundary != nil {
+		mkdir = cfg.Boundary.EnsureDirectory
+	}
+	if err := mkdir(abs); err != nil {
 		return nil, err
 	}
 	m := &Manager{cfg: cfg, agentID: agentID, send: send, jobs: make(chan queuedJob, cfg.QueueSize), active: make(map[string]string), completed: make(map[string]Result)}
@@ -258,6 +265,12 @@ func isLoopbackHost(host string) bool {
 }
 
 func (m *Manager) run(ctx context.Context, c Command) {
+	if m.cfg.Boundary != nil {
+		if err := m.cfg.Boundary.WithFiles([]string{filepath.Join(m.cfg.Directory, c.Filename)}, func() error { return nil }); err != nil {
+			m.fail(c, &JobError{Code: DiskWriteFailed, Message: "download destination failed security validation", Err: err})
+			return
+		}
+	}
 	space, err := m.cfg.SpaceChecker(m.cfg.Directory)
 	if err != nil {
 		m.fail(c, &JobError{Code: InternalError, Message: "could not check available disk space", Err: err})
@@ -297,13 +310,17 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		m.fail(c, &JobError{Code: SizeMismatch, Message: "Content-Length does not match expected size"})
 		return
 	}
-	f, err := os.CreateTemp(m.cfg.Directory, "."+c.Filename+"-*.part")
+	create := os.CreateTemp
+	if m.cfg.Boundary != nil {
+		create = m.cfg.Boundary.CreateTemp
+	}
+	f, err := create(m.cfg.Directory, "."+c.Filename+"-*.part")
 	if err != nil {
 		m.fail(c, &JobError{Code: DiskWriteFailed, Message: "could not create temporary file", Err: err})
 		return
 	}
 	part := f.Name()
-	defer os.Remove(part)
+	defer m.removePart(part)
 	w := &progressWriter{writer: f, total: c.Size, interval: m.cfg.ProgressInterval, report: func(n int64, p int) { _ = m.send(Progress{"FILE_DOWNLOAD_PROGRESS", c.JobID, m.agentID, n, c.Size, p}) }}
 	n, copyErr := io.Copy(w, resp.Body)
 	closeErr := f.Close()
@@ -312,32 +329,32 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		if ctx.Err() != nil {
 			code = Cancelled
 		}
-		_ = os.Remove(part)
+		_ = m.removePart(part)
 		m.failAt(c, &JobError{Code: code, Message: "download interrupted", Err: copyErr}, n)
 		return
 	}
 	if closeErr != nil {
-		_ = os.Remove(part)
+		_ = m.removePart(part)
 		m.failAt(c, &JobError{Code: DiskWriteFailed, Message: "could not flush temporary file", Err: closeErr}, n)
 		return
 	}
 	w.final(n)
 	if n != c.Size {
-		_ = os.Remove(part)
+		_ = m.removePart(part)
 		m.failAt(c, &JobError{Code: SizeMismatch, Message: "downloaded file size does not match"}, n)
 		return
 	}
 	m.setStatus(c, "VERIFYING")
-	actual, err := fileSHA256Context(ctx, part)
+	actual, err := m.fileSHA256(ctx, part)
 	if err != nil {
-		_ = os.Remove(part)
+		_ = m.removePart(part)
 		m.failAt(c, &JobError{Code: InternalError, Message: "could not calculate checksum", Err: err}, n)
 		return
 	}
 	expected, _ := hex.DecodeString(c.SHA256)
 	if subtle.ConstantTimeCompare(actual, expected) != 1 {
 		log.Printf("hash verification failed job_id=%s file_id=%s filename=%q", c.JobID, c.FileID, c.Filename)
-		_ = os.Remove(part)
+		_ = m.removePart(part)
 		m.failAt(c, &JobError{Code: HashMismatch, Message: "downloaded file checksum does not match"}, n)
 		return
 	}
@@ -345,8 +362,8 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		m.failAt(c, &JobError{Code: Cancelled, Message: "download cancelled"}, n)
 		return
 	}
-	if err := finalizeTemporary(part, dest); err != nil {
-		_ = os.Remove(part)
+	if err := m.publish(part, dest); err != nil {
+		_ = m.removePart(part)
 		m.failAt(c, &JobError{Code: DiskWriteFailed, Message: "could not finalize downloaded file", Err: err}, n)
 		return
 	}

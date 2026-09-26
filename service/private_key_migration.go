@@ -17,7 +17,7 @@ import (
 	"ws-agent/internal/statefile"
 )
 
-const privateKeyBackupSuffix = ".dpapi-user-v1.bak"
+const privateKeyBackupSuffix = apppaths.LegacyPrivateKeyBackupSuffix
 
 type PrivateKeyMigrationResult struct {
 	AlreadyMigrated bool

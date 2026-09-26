@@ -49,7 +49,7 @@ reboot ([failure-action flags](https://learn.microsoft.com/en-us/windows/win32/a
 
 In that elevated PowerShell window:
 
-    $meta = .\build\thesis-agent-dev.exe --service-info | ConvertFrom-Json
+    $meta = .\build\thesis-agent.exe --service-info | ConvertFrom-Json
     icacls.exe $meta.paths.install
     icacls.exe $meta.executable
     icacls.exe $meta.paths.root
@@ -231,8 +231,9 @@ the intentional Stop test separately; it must remain stopped.
 Use an isolated console installation with its correct existing identity/config.
 Run go run ., verify attached terminal plus file logging, Ctrl+C, and the existing
 performance/process/download/scan/mock-power flows. Check screen JPEG delivery
-in console mode. In Service mode, screen requests should leave the Agent alive;
-the current Dashboard can remain Waiting because there is no availability message.
+in console mode. In Service mode with an interactive user and Desktop Helper,
+verify Named Pipe JPEG delivery through the Service-owned WebSocket. Without the
+Helper, requests must leave the Service alive and resume when the Helper returns.
 
 When finished with this development Service:
 
@@ -243,3 +244,69 @@ Expect Service-not-installed (1060) after removal, with identity/config/logs and
 the Event Log source retained. No recursive data deletion is part of Remove.
 Record the actual results of each scenario; this document is a procedure, not
 evidence that any of these scenarios passed.
+
+## Phase 5B.1 ACL acceptance on one Lab PC
+
+Status: **NOT VERIFIED**. Run only on a designated disposable Lab PC/VM after
+reviewing [runtime ACL security](runtime-acl-security.md). Never deliberately expose
+a real machine private key to Users/Everyone for this test. Use a disposable fixture
+identity and take an Administrator-only snapshot/backup before changing ACLs.
+
+1. On the Lab PC, run `go test -v ./internal/protectedpath` from an elevated test
+   terminal if Go is available. Confirm `TestTrustedStartupScopePreflightAndRepair` and
+   `TestRepairedFixtureReachesAuthoritativePrivateKeyLoader` execute, without SKIP.
+   They use temporary fixtures only. The implementation session could not verify
+   these two elevated integration suites.
+2. Deploy the reviewed `build/thesis-agent.exe` and `build/thesis-agent-desktop.exe`
+   with the existing update workflow. Resolve metadata with `--service-info`.
+   Record SHA-256 of identity, config and enrollment files without printing contents,
+   plus Agent ID/public-key fingerprint. Verify normal startup and `acl_canonical`.
+3. Stop the owned Service. On the disposable installation, change a trusted-only
+   DACL (e.g. remove SYSTEM's ACE while retaining Administrators Full Control and
+   trusted ownership). Start it; expect drift → repair_started → repair_success,
+   followed by normal authentication and unchanged identity/config hashes.
+   Compare enrollment bytes immediately around ACL-only Repair; ordinary runtime
+   enrollment verification may update the marker under its existing semantics.
+4. Restart once more: expect canonical verification with no repair. Confirm Standard
+   User cannot read sensitive runtime files or modify the protected tree.
+5. With the Service stopped, run `scripts/dev-service.ps1 -Action Repair` with the
+   reviewed binary. It must preserve hashes and leave the Service stopped. While
+   Service is Running, the same action must refuse without stopping it.
+6. Restore the disposable snapshot between unsafe scenarios. With Service stopped,
+   test an untrusted owner, Users read ACE, reparse/junction, critical-file directory
+   and unreadable/unsupported ACL. Both Service startup and Repair must refuse;
+   expect the exact reason, no ACL reset, no content changes and nonzero maintenance
+   exit status. Stop here for manual security review; never re-enroll/regenerate to
+   hide a failure. Ensure no unrelated path was altered by reparse tests.
+7. Check Application events from `ThesisAgentDev` for early refusal, including when
+   file logging cannot initialize. After safe successful startup, check replay of
+   repair results in agent.log. If Event Log delivery fails, refusal must still hold.
+8. With the interactive Desktop Helper running, check screenshots/streamed JPEG,
+   authenticated WebSocket, heartbeat/performance/process/download/mock-power flows,
+   and the existing update task registration. Reboot only on the Lab PC when approved
+   by its operator; verify automatic Service startup and identity stability.
+
+Record actual results separately. Successful builds/unit tests do not establish
+LocalSystem behavior, effective user isolation, Event Viewer delivery or live
+Desktop Capture/update compatibility.
+
+### Bounded startup refinement acceptance
+
+Status: **NOT VERIFIED on a Lab PC**. The non-elevated automated large-download test
+uses virtual metadata (20,000/50,000 children), not thousands of real disk files.
+
+On the disposable Lab installation, add more than 8,192 fixture download files and
+nested stale `.part`/rotated-log files. Keep root, critical files, known backup and
+`logs`/`data`/`data/downloads` directory ACLs canonical. Startup and `-Action Repair`
+must succeed without enumerating or changing these children. Compare representative
+historical file bytes/ACLs before and after Repair. An unsafe critical backup or
+container must still fail closed, including a reparse on the downloads directory.
+
+Test actual use separately: make the active log or a download destination a fixture
+reparse/hard link/unsafe ACL. Log open or that download job must refuse without
+writing through it. An unsafe rotated slot refuses when rotation actually touches
+it, with Event Log diagnostics and no recursive logging/deadlock. Restore fixtures,
+then check log append/rotation and download/checksum/publish. Verify state writes,
+identity/config hashes, Desktop JPEG and the existing installer/update workflow.
+Run the elevated protected dynamic-I/O tests as well; they were skipped in the
+implementation session. Do not expose real key material during unsafe ACL tests.
