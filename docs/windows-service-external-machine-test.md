@@ -41,7 +41,7 @@ Service สามารถ Running ระหว่าง REST หรือ WebSo
 | Enrollment state | C:\ProgramData\ThesisAgentDev\enrollment_state.json |
 | Log | C:\ProgramData\ThesisAgentDev\logs\agent.log |
 | Downloads | C:\ProgramData\ThesisAgentDev\data\downloads |
-| Management script | scripts/dev-service.ps1 |
+| Management script | install/scripts/dev-service.ps1 |
 
 Paths จริงอ่านจาก Windows Known Folder APIs ไม่ได้บังคับ drive C: ให้ยึดผล --service-info ของเครื่องที่ทดสอบ
 
@@ -101,7 +101,7 @@ Get-CimInstance Win32_OperatingSystem | Select-Object Caption, Version, OSArchit
 Get-Volume | Select-Object DriveLetter, FileSystem
 Test-Path -LiteralPath '.\internal\agent\runtime.go'
 Test-Path -LiteralPath '.\internal\servicehost\configure_windows.go'
-Test-Path -LiteralPath '.\scripts\dev-service.ps1'
+Test-Path -LiteralPath '.\install\scripts\dev-service.ps1'
 ~~~
 
 ผล Test-Path ทั้งสามต้อง True และ PSEdition ต้อง Desktop สำหรับ management script ถ้ารับ source archive ที่ไม่มี .git ให้บันทึก commit + snapshot/version ที่มากับชุด source แทน git status/rev-parse ไม่ต้อง git init เพื่อทำให้คำสั่งผ่าน
@@ -125,10 +125,10 @@ if ($LASTEXITCODE -ne 0) { throw 'FAIL: go test' }
 go vet ./...
 if ($LASTEXITCODE -ne 0) { throw 'FAIL: go vet' }
 
-go build -o build\thesis-agent-dev.exe .
+go build -o install\build\agent\thesis-agent.exe .
 if ($LASTEXITCODE -ne 0) { throw 'FAIL: Windows build' }
 
-Get-FileHash -LiteralPath '.\build\thesis-agent-dev.exe' -Algorithm SHA256
+Get-FileHash -LiteralPath '.\install\build\agent\thesis-agent.exe' -Algorithm SHA256
 ~~~
 
 สำเร็จ: tests แสดง ok หรือ cached ตาม package, vet/build จบ exit code 0 และได้ binary ใหม่ หยุดหากมี error อย่าใช้ executable เก่าปะปนกับผล build ที่ล้มเหลว
@@ -165,10 +165,10 @@ try {
 
 ~~~powershell
 Set-Location -LiteralPath 'C:\Lab\thesis-agent'
-.\build\thesis-agent-dev.exe --service-info
+.\install\build\agent\thesis-agent.exe --service-info
 if ($LASTEXITCODE -ne 0) { throw 'Metadata failed' }
 
-$agentExe = (Resolve-Path -LiteralPath '.\build\thesis-agent-dev.exe').ProviderPath
+$agentExe = (Resolve-Path -LiteralPath '.\install\build\agent\thesis-agent.exe').ProviderPath
 $fromRepo = & $agentExe --service-info
 if ($LASTEXITCODE -ne 0) { throw 'Metadata failed' }
 $meta = $fromRepo | ConvertFrom-Json
@@ -300,14 +300,14 @@ $configSource = 'C:\ProgramData\ThesisAgentDev-TestInput-REPLACE\service.env' # 
 
 ~~~powershell
 # Existing identity ของ installation นี้: แก้ IdentityPath ก่อนใช้
-.\scripts\dev-service.ps1 -Action Install -ConfigPath $configSource -IdentityPath 'D:\ExistingAgent\agent_config.json'
+.\install\scripts\dev-service.ps1 -Action Install -ConfigPath $configSource -IdentityPath 'D:\ExistingAgent\agent_config.json'
 ~~~
 
 หรือ:
 
 ~~~powershell
 # Installation ใหม่เท่านั้น
-.\scripts\dev-service.ps1 -Action Install -ConfigPath $configSource -NewIdentity
+.\install\scripts\dev-service.ps1 -Action Install -ConfigPath $configSource -NewIdentity
 ~~~
 
 ถ้า persistent identity/config ของ installation นี้มีอยู่แล้ว และเป็นการ repair ที่ได้รับอนุญาต ให้ Stop ก่อน แล้วใช้ -Action Install โดยไม่ใส่ -NewIdentity สคริปต์จะ reuse state เดิม หยุดทันทีถ้ามี identity conflict
@@ -323,7 +323,7 @@ Service is Running. Verify API/WebSocket connectivity in the protected Agent log
 ตรวจต่อ:
 
 ~~~powershell
-.\scripts\dev-service.ps1 -Action Status
+.\install\scripts\dev-service.ps1 -Action Status
 sc.exe qc ThesisAgentDev
 sc.exe queryex ThesisAgentDev
 sc.exe qfailure ThesisAgentDev
@@ -1010,7 +1010,7 @@ sc.exe queryex ThesisAgentDev
 ~~~powershell
 Set-Location -LiteralPath 'C:\Lab\thesis-agent'
 $installedAgent = Join-Path ([Environment]::GetFolderPath('ProgramFiles')) 'ThesisAgentDev\thesis-agent.exe'
-.\scripts\dev-service.ps1 -Action Remove -Executable $installedAgent
+.\install\scripts\dev-service.ps1 -Action Remove -Executable $installedAgent
 sc.exe query ThesisAgentDev
 $LASTEXITCODE
 ~~~
@@ -1207,7 +1207,7 @@ Runtime/provisioner ที่ใช้ persistent state เดียวกัน
 | [service/agent_id.go](../service/agent_id.go) | LoadIdentity, MigrateIdentity และไม่ regenerate corrupt identity |
 | [service/registration.go](../service/registration.go) | EnsureEnrollment, status handling และ interactive prompt |
 | [service/enrollment_state.go](../service/enrollment_state.go) | marker ผูก ID/public-key fingerprint/API |
-| [scripts/dev-service.ps1](../scripts/dev-service.ps1) | Action, Executable, ConfigPath, IdentityPath, NewIdentity และ retained-data Remove |
+| [install/scripts/dev-service.ps1](../install/scripts/dev-service.ps1) | Action, Executable, ConfigPath, IdentityPath, NewIdentity และ retained-data Remove |
 | [windows-service.md](windows-service.md) | architecture และข้อจำกัด |
 | [windows-service-acceptance.md](windows-service-acceptance.md) | access probe และ manual acceptance เดิม |
 | [windows-service-verification.md](windows-service-verification.md) | ผลเครื่องพัฒนาก่อนหน้า ซึ่งไม่ใช่ผลเครื่องใหม่ |

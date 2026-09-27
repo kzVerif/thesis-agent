@@ -181,7 +181,7 @@ startup ที่ไม่ปลอดภัยไม่พยายามเข
 อย่างชัดเจนและรอให้เป็น Stopped แล้ว ให้ใช้:
 
 ```powershell
-.\scripts\dev-service.ps1 -Action Repair -Executable .\build\thesis-agent.exe
+.\install\scripts\dev-service.ps1 -Action Repair -Executable .\install\build\agent\thesis-agent.exe
 ```
 
 Repair ตรวจข้อมูลกำกับ Program Files/ProgramData ที่คาดหวัง ปฏิเสธพาธ reparse
@@ -203,9 +203,9 @@ Repair ไม่เตรียมติดตั้ง ไม่ถามโท
 เมื่อผิดพลาดคืน exit code ที่ไม่ใช่ศูนย์และให้ผู้ดูแลตรวจสอบความปลอดภัย/กู้คืนด้วยตนเอง
 การพบสถานะไม่ปลอดภัยไม่ทำให้รีเซ็ต ACL
 
-`-Action Install` และไฟล์ BAT ทั้งหมดยังคงพฤติกรรมเดิม รวมถึง `update-agent.bat`
+`-Action Install` ยังคงใช้ installer ACL policy เดิม ส่วน BAT จัดอยู่ใต้ `install/` และเรียกขั้นตอนนี้ผ่านสคริปต์จัดการร่วมกัน รวมถึง `install/agent/maintenance/update-agent.bat`
 ที่ใช้ binary ของ Agent และ Desktop Helper ซึ่ง build ไว้ล่วงหน้า
-ระยะนี้ไม่เพิ่มการย้ายรูปแบบกุญแจเก่าให้ `install-existing-agent.bat`
+ระยะนี้ไม่เพิ่มการย้ายรูปแบบกุญแจเก่าให้ `install/agent/setup/install-existing-agent.bat`
 
 Desktop Capture ยังคงเป็น Service → Named Pipe → Desktop Helper ในเซสชันผู้ใช้ → JPEG
 → WebSocket ที่ Service เป็นผู้ดูแล Helper ไม่ได้รับข้อมูลรับรองของเซิร์ฟเวอร์

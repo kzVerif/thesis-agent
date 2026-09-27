@@ -1,61 +1,46 @@
 @echo off
-setlocal EnableExtensions
-
-rem One-click installer for a new Windows Agent machine.
-rem Expected files beside this BAT:
-rem   thesis-agent.exe
-rem   service.env
-rem The BAT must be run from an elevated Administrator context.
-
-cd /d "%~dp0"
-
-net session >nul 2>&1
-if not "%errorlevel%"=="0" (
-    echo ERROR: Run this file as Administrator.
-    pause
-    exit /b 1
+setlocal EnableExtensions DisableDelayedExpansion
+rem Install the Agent Service and Desktop Helper together for the current user.
+rem Open normally; the Service step requests Administrator permission through UAC.
+set "TOOL=%~dp0install\scripts\manage.ps1"
+if not exist "%TOOL%" (
+    echo ERROR: Keep this BAT beside the complete install folder.
+    set "RESULT=1"
+    goto :done
 )
-
-set "AGENT_EXE=%~dp0build/thesis-agent.exe"
-set "CONFIG_FILE=%~dp0build/service.env"
-set "INSTALL_SCRIPT=%~dp0scripts\dev-service.ps1"
-
-if not exist "%AGENT_EXE%" (
-    echo ERROR: Missing %AGENT_EXE%
-    pause
-    exit /b 1
+echo [1/3] Checking Agent and Desktop Helper package files...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TOOL%" -Action InstallNew -Check
+if errorlevel 1 goto :failed
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TOOL%" -Action HelperInstall -Check
+if errorlevel 1 goto :failed
+if /i "%~1"=="--check" (
+    echo Package check completed. No system changes were made.
+    set "RESULT=0"
+    goto :done
 )
-
-if not exist "%CONFIG_FILE%" (
-    echo ERROR: Missing %CONFIG_FILE%
-    pause
-    exit /b 1
-)
-
-if not exist "%INSTALL_SCRIPT%" (
-    echo ERROR: Missing %INSTALL_SCRIPT%
-    pause
-    exit /b 1
-)
-
-echo Installing a NEW Agent identity and Windows Service...
-echo Existing identity files are never replaced by this command.
 echo.
-
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%INSTALL_SCRIPT%" ^
-    -Action Install ^
-    -Executable "%AGENT_EXE%" ^
-    -ConfigPath "%CONFIG_FILE%" ^
-    -NewIdentity
-
-if not "%errorlevel%"=="0" (
-    echo.
-    echo ERROR: Installation failed. Review the message above and the Agent log.
-    pause
-    exit /b %errorlevel%
-)
-
+echo [2/3] Installing a new Agent identity and Windows Service...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TOOL%" -Action InstallNew
+if errorlevel 1 goto :failed
 echo.
-echo Installation completed. Check Service status and Agent log before use.
-pause
-exit /b 0
+echo [3/3] Installing and starting Desktop Helper for the current user...
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%TOOL%" -Action HelperInstall
+if errorlevel 1 goto :helper_failed
+echo.
+echo Installation completed: Agent Service and Desktop Helper are started.
+echo Agent starts with Windows. Desktop Helper starts when this user logs on.
+set "RESULT=0"
+goto :done
+:helper_failed
+echo.
+echo ERROR: Agent Service was installed, but Desktop Helper setup failed.
+echo Retry install\desktop-helper\setup\install-desktop-helper-task.bat in this user session.
+set "RESULT=1"
+goto :done
+:failed
+echo.
+echo ERROR: Setup stopped. Review the error above before retrying.
+set "RESULT=1"
+:done
+if /i not "%~1"=="--check" pause
+exit /b %RESULT%

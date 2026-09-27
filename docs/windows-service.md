@@ -149,8 +149,8 @@ Build จาก repository โดยไม่ต้องยกระดับ�
 ```powershell
 go test ./...
 go vet ./...
-go build -o build/thesis-agent.exe .
-go build -o build/thesis-agent-desktop.exe ./cmd/thesis-agent-desktop
+go build -o install/build/agent/thesis-agent.exe .
+go build -o install/build/desktop-helper/thesis-agent-desktop.exe ./cmd/thesis-agent-desktop
 ```
 
 เตรียม .env ของ Service ที่ตรวจทานแล้วในตำแหน่งส่วนตัวนอกระบบควบคุมเวอร์ชัน
@@ -169,12 +169,12 @@ POWER_MODE=mock
 
 ```powershell
 # เก็บข้อมูลประจำตัวเดิมของการติดตั้งนี้ไว้
-.\scripts\dev-service.ps1 -Action Install `
+.\install\scripts\dev-service.ps1 -Action Install `
   -ConfigPath 'D:\PrivateConfig\service.env' `
   -IdentityPath 'D:\ExistingAgent\agent_config.json'
 
 # อีกทางเลือก: ใช้เฉพาะการติดตั้งใหม่ที่ไม่มีข้อมูลประจำตัวเดิมจริง ๆ
-.\scripts\dev-service.ps1 -Action Install `
+.\install\scripts\dev-service.ps1 -Action Install `
   -ConfigPath 'D:\PrivateConfig\service.env' -NewIdentity
 ```
 
@@ -194,18 +194,18 @@ executable อื่นที่ใช้ชื่อ Service เดียวก
 ## การเริ่ม หยุด ดูสถานะ ซ่อม และถอนทะเบียน
 
 ```powershell
-.\scripts\dev-service.ps1 -Action Status
-.\scripts\dev-service.ps1 -Action Stop
-.\scripts\dev-service.ps1 -Action Start
-.\scripts\dev-service.ps1 -Action Restart
+.\install\scripts\dev-service.ps1 -Action Status
+.\install\scripts\dev-service.ps1 -Action Stop
+.\install\scripts\dev-service.ps1 -Action Start
+.\install\scripts\dev-service.ps1 -Action Restart
 ```
 
-ค่าเริ่มต้นของสคริปต์อ่านข้อมูลกำกับจาก build/thesis-agent.exe
+ค่าเริ่มต้นของสคริปต์อ่านข้อมูลกำกับจาก install/build/agent/thesis-agent.exe
 ให้เก็บไฟล์ build นี้ไว้ หรือระบุ -Executable เป็นพาธโปรแกรมที่ติดตั้งแล้ว
 Status แสดงบัญชี โหมดเริ่มทำงาน รหัสโปรเซส การตั้งค่ากู้คืน และ DACL
 Running หมายถึงรันไทม์ภายในเริ่มแล้ว ต้องตรวจล็อกเพิ่มเติมเพื่อยืนยันการลงทะเบียน/เชื่อมต่อ
 
-การอัปเดตใช้ขั้นตอนเดิมของ `update-agent.bat` พร้อม binary ทั้งสองที่ build ไว้ล่วงหน้า
+การอัปเดตใช้ขั้นตอนเดิมของ `install/agent/maintenance/update-agent.bat` พร้อม binary ทั้งสองที่ build ไว้ล่วงหน้า
 โดยเก็บข้อมูลประจำตัว/การตั้งค่าและเริ่ม task ของ Desktop Helper ใหม่
 หากซ่อมเฉพาะ ACL ให้ผู้ดูแลหยุด Service ของระบบนี้อย่างชัดเจนแล้วใช้ `-Action Repair`
 สถานะไม่ปลอดภัยต้องให้ผู้ดูแลตรวจสอบความปลอดภัย/กู้คืนด้วยตนเอง ไม่ใช้ตัวติดตั้งรีเซ็ต ACL
@@ -213,7 +213,7 @@ Install คงพฤติกรรมเตรียมติดตั้งเ
 ห้ามใช้ NewIdentity กับการติดตั้งเดิม
 
 ```powershell
-.\scripts\dev-service.ps1 -Action Remove
+.\install\scripts\dev-service.ps1 -Action Remove
 ```
 
 Remove หยุดและถอนทะเบียนเฉพาะ Service นี้ ตั้งใจเก็บไฟล์โปรแกรม ข้อมูลรันไทม์ กุญแจ ล็อก

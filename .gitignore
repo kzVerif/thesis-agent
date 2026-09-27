@@ -8,6 +8,11 @@ logs
 .env.*
 !.env.example
 /build/
+/install/build/agent/
+/install/build/desktop-helper/
+/install/build/.staging-*/
+/install/build/manifest.json
+/install/config/service.env
 /enrollment_state.json
 /.runtime.lock
 /.state-*.tmp

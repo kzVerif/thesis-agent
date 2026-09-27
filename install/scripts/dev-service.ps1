@@ -9,7 +9,7 @@ param(
     [Parameter(Mandatory=$true)]
     [ValidateSet('Install','Start','Status','Stop','Restart','Remove','Repair')]
     [string]$Action,
-    [string]$Executable = (Join-Path $PSScriptRoot '..\build\thesis-agent.exe'),
+    [string]$Executable = (Join-Path $PSScriptRoot '..\build\agent\thesis-agent.exe'),
     [string]$ConfigPath,
     [string]$IdentityPath,
     [switch]$NewIdentity

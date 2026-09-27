@@ -1,3 +1,6 @@
+ชุดติดตั้งและไฟล์ BAT พร้อมใช้งาน: [install/README.md](install/README.md)
+
+ติดตั้งทุกส่วนจาก root: [เครื่องใหม่](install-new-agent.bat) หรือ [เคยติดตั้งแล้ว](install-existing-agent.bat) — รวม Agent Service และ Desktop Helper พร้อมเริ่มใช้งาน
 
 เอกสารรับคำสั่งสแกนไวรัส quick / custom / full และส่งผลผ่าน WebSocket: [docs/virus-scan.md](docs/virus-scan.md)
 

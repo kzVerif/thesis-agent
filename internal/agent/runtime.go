@@ -76,7 +76,7 @@ func runWithSecurity(ctx context.Context, options Options, paths apppaths.Paths,
 	if machine && !options.Service {
 		// Scripts establish NTFS ACLs before any sensitive state is written.
 		if info, err := os.Stat(paths.Root); err != nil || !info.IsDir() {
-			return fmt.Errorf("protected runtime directory is missing; run scripts/dev-service.ps1 as Administrator")
+			return fmt.Errorf("protected runtime directory is missing; run install/scripts/dev-service.ps1 as Administrator")
 		}
 	}
 	var unlock func()

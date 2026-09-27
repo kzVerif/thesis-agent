@@ -26,8 +26,8 @@ Build ซอร์สที่ตรวจทานแล้ว แล้วเ�
 
 จาก repository ของ Agent หลังเปลี่ยนพาธต้นทางตัวอย่างทั้งสองเป็นพาธจริง:
 
-    .\scripts\dev-service.ps1 -Action Install -ConfigPath 'D:\PrivateConfig\service.env' -IdentityPath 'D:\ExistingAgent\agent_config.json'
-    .\scripts\dev-service.ps1 -Action Status
+    .\install\scripts\dev-service.ps1 -Action Install -ConfigPath 'D:\PrivateConfig\service.env' -IdentityPath 'D:\ExistingAgent\agent_config.json'
+    .\install\scripts\dev-service.ps1 -Action Status
     sc.exe qc ThesisAgentDev
     sc.exe queryex ThesisAgentDev
     sc.exe qfailure ThesisAgentDev
@@ -52,7 +52,7 @@ Running อย่างเดียวไม่พิสูจน์ว่า On
 
 ในหน้าต่าง PowerShell แบบ elevated เดิม:
 
-    $meta = .\build\thesis-agent.exe --service-info | ConvertFrom-Json
+    $meta = .\install\build\agent\thesis-agent.exe --service-info | ConvertFrom-Json
     icacls.exe $meta.paths.install
     icacls.exe $meta.executable
     icacls.exe $meta.paths.root
@@ -83,11 +83,11 @@ Running อย่างเดียวไม่พิสูจน์ว่า On
 
 ## 3. การควบคุมของผู้ดูแลและการหยุดตามขั้นตอน
 
-    .\scripts\dev-service.ps1 -Action Stop
+    .\install\scripts\dev-service.ps1 -Action Stop
     Start-Sleep -Seconds 40
     Get-Service -Name ThesisAgentDev
-    .\scripts\dev-service.ps1 -Action Start
-    .\scripts\dev-service.ps1 -Action Restart
+    .\install\scripts\dev-service.ps1 -Action Start
+    .\install\scripts\dev-service.ps1 -Action Restart
     Get-Content -LiteralPath $meta.paths.log -Tail 100
 
 คาดหวังว่า Stop แล้วยังคง Stopped หลัง 40 วินาที Start/Restart ทำงานได้
@@ -249,7 +249,7 @@ Running อย่างเดียวไม่พิสูจน์ว่า On
 
 เมื่อใช้งาน Service สำหรับพัฒนานี้เสร็จ:
 
-    .\scripts\dev-service.ps1 -Action Remove
+    .\install\scripts\dev-service.ps1 -Action Remove
     sc.exe query ThesisAgentDev
 
 หลังถอนทะเบียนคาดหวัง Service-not-installed (1060) โดยยังเก็บข้อมูลประจำตัว/การตั้งค่า/ล็อก
@@ -270,7 +270,7 @@ Running อย่างเดียวไม่พิสูจน์ว่า On
    ยืนยันว่า `TestTrustedStartupScopePreflightAndRepair` และ
    `TestRepairedFixtureReachesAuthoritativePrivateKeyLoader` ทำงานจริงโดยไม่ SKIP
    ทั้งคู่ใช้เฉพาะข้อมูลทดสอบชั่วคราว เซสชันที่พัฒนายังไม่ได้ยืนยันชุดทดสอบร่วมสองชุดนี้ที่ต้องใช้สิทธิ์ elevated
-2. ติดตั้ง `build/thesis-agent.exe` และ `build/thesis-agent-desktop.exe` ที่ตรวจทานแล้วผ่านขั้นตอนอัปเดตเดิม
+2. ติดตั้ง `install/build/agent/thesis-agent.exe` และ `install/build/desktop-helper/thesis-agent-desktop.exe` ที่ตรวจทานแล้วผ่านขั้นตอนอัปเดตเดิม
    อ่านข้อมูลกำกับด้วย `--service-info` บันทึก SHA-256 ของข้อมูลประจำตัว การตั้งค่า และสถานะลงทะเบียน
    โดยไม่พิมพ์เนื้อหา พร้อม Agent ID/ลายนิ้วมือกุญแจสาธารณะ ตรวจ startup ปกติและ `acl_canonical`
 3. หยุด Service ของระบบนี้ บนการติดตั้งที่ใช้ทิ้งได้ให้เปลี่ยน DACL ที่มีเฉพาะผู้รับสิทธิ์ที่เชื่อถือได้
@@ -281,7 +281,7 @@ Running อย่างเดียวไม่พิสูจน์ว่า On
    เพราะการตรวจลงทะเบียนระหว่างรันตามปกติอาจปรับไฟล์สถานะตามพฤติกรรมเดิม
 4. เริ่มใหม่อีกครั้ง ต้องตรวจผ่านตามมาตรฐานโดยไม่ซ่อม
    ยืนยันว่า Standard User อ่านไฟล์รันไทม์สำคัญหรือแก้ต้นไม้ที่ป้องกันไว้ไม่ได้
-5. ขณะ Service หยุด รัน `scripts/dev-service.ps1 -Action Repair` ด้วย binary ที่ตรวจทานแล้ว
+5. ขณะ Service หยุด รัน `install/scripts/dev-service.ps1 -Action Repair` ด้วย binary ที่ตรวจทานแล้ว
    ต้องคง hash และสถานะหยุด หาก Service เป็น Running คำสั่งเดียวกันต้องปฏิเสธโดยไม่หยุด Service
 6. คืน snapshot ระหว่างสถานการณ์ไม่ปลอดภัย ขณะ Service หยุด ให้ทดสอบเจ้าของที่ไม่น่าเชื่อถือ
    ACE ที่ให้ Users อ่าน, reparse/junction, พาธไฟล์สำคัญที่กลายเป็นไดเรกทอรี และ ACL ที่อ่านไม่ได้/ไม่รองรับ

@@ -3,14 +3,15 @@ package download
 import "time"
 
 type Command struct {
-	Type        string    `json:"type"`
-	JobID       string    `json:"job_id"`
-	FileID      string    `json:"file_id"`
-	Filename    string    `json:"filename"`
-	Size        int64     `json:"size"`
-	SHA256      string    `json:"sha256"`
-	DownloadURL string    `json:"download_url"`
-	ExpiresAt   time.Time `json:"expires_at"`
+	Type            string    `json:"type"`
+	JobID           string    `json:"job_id"`
+	FileID          string    `json:"file_id"`
+	Filename        string    `json:"filename"`
+	DestinationPath string    `json:"destination_path,omitempty"`
+	Size            int64     `json:"size"`
+	SHA256          string    `json:"sha256"`
+	DownloadURL     string    `json:"download_url"`
+	ExpiresAt       time.Time `json:"expires_at"`
 }
 
 type Status struct {
@@ -42,16 +43,17 @@ type Result struct {
 type ErrorCode string
 
 const (
-	InvalidCommand        ErrorCode = "INVALID_COMMAND"
-	URLExpired            ErrorCode = "URL_EXPIRED"
-	HTTPError             ErrorCode = "HTTP_ERROR"
-	DownloadFailed        ErrorCode = "DOWNLOAD_FAILED"
-	DiskWriteFailed       ErrorCode = "DISK_WRITE_FAILED"
-	InsufficientDiskSpace ErrorCode = "INSUFFICIENT_DISK_SPACE"
-	SizeMismatch          ErrorCode = "SIZE_MISMATCH"
-	HashMismatch          ErrorCode = "HASH_MISMATCH"
-	Cancelled             ErrorCode = "CANCELLED"
-	InternalError         ErrorCode = "INTERNAL_ERROR"
+	InvalidCommand         ErrorCode = "INVALID_COMMAND"
+	URLExpired             ErrorCode = "TOKEN_EXPIRED"
+	HTTPError              ErrorCode = "HTTP_ERROR"
+	DownloadFailed         ErrorCode = "DOWNLOAD_FAILED"
+	DiskWriteFailed        ErrorCode = "WRITE_FAILED"
+	InsufficientDiskSpace  ErrorCode = "DISK_FULL"
+	InvalidDestinationPath ErrorCode = "INVALID_DESTINATION_PATH"
+	SizeMismatch           ErrorCode = "SIZE_MISMATCH"
+	HashMismatch           ErrorCode = "HASH_MISMATCH"
+	Cancelled              ErrorCode = "CANCELLED"
+	InternalError          ErrorCode = "INTERNAL_ERROR"
 )
 
 type JobError struct {

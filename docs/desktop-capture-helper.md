@@ -22,28 +22,28 @@ identity/private key ส่วน Desktop Helper ไม่มี credential ข�
 
 ## การอัปเดต executable
 
-นำ executable ที่ build เรียบร้อยแล้วมาวางไว้ในโฟลเดอร์ `build`:
+บิลด์ด้วย `install/build/build.bat` หรือใช้ executable ที่เตรียมไว้ในชุดติดตั้ง:
 
 ```text
-build/thesis-agent.exe
-build/thesis-agent-desktop.exe
+install/build/agent/thesis-agent.exe
+install/build/desktop-helper/thesis-agent-desktop.exe
 ```
 
 จากนั้นใช้ไฟล์สำหรับอัปเดต:
 
 ```text
-update-agent.bat
+install/agent/maintenance/update-agent.bat
 ```
 
-ไฟล์นี้ต้องรันด้วย **Run as administrator** และจะทำสิ่งต่อไปนี้ โดยไม่เรียก
-คำสั่ง build หรือ compile:
+เปิดไฟล์นี้จากบัญชีผู้ใช้ที่ต้องการจับหน้าจอ ระบบขอ UAC เฉพาะงาน Service
+และจะทำสิ่งต่อไปนี้ โดยไม่เรียกคำสั่ง build หรือ compile:
 
 1. ตรวจสอบ executable ใหม่
 2. หยุด Windows Service
-3. หยุด Desktop Helper ที่กำลังทำงาน
-4. ติดตั้ง Service executable ใหม่
-5. ใช้ identity และ configuration เดิม
-6. เริ่ม Desktop Helper task กลับมา
+3. ติดตั้ง Service executable ใหม่ โดยใช้ identity และ configuration เดิม
+4. หยุด Desktop Helper ใน session ของผู้ใช้ปัจจุบัน
+5. คัดลอก helper ไป `%LOCALAPPDATA%\ThesisAgentDesktop`
+6. ลงทะเบียนและเริ่ม Desktop Helper task กลับมา
 
 ## การทดสอบแบบเปิดเอง
 
@@ -51,10 +51,10 @@ update-agent.bat
 แบบ background:
 
 ```powershell
-.\run-desktop-helper.bat
+.\install\desktop-helper\run\run-desktop-helper.bat
 ```
 
-คำสั่งนี้จะเรียกผ่าน `wscript.exe` และไม่เปิดหน้าต่าง Command Prompt ค้างไว้ หาก
+คำสั่งนี้จะเรียกผ่าน `wscript.exe` แบบซ่อนหน้าต่างของ helper หากยังไม่เคยติดตั้งจะติดตั้งให้ก่อน หาก
 ปิด Desktop Helper แล้ว Service จะยังทำงานต่อ แต่การจับภาพจะไม่พร้อมใช้งาน
 
 ## เริ่มอัตโนมัติตอน login
@@ -62,7 +62,7 @@ update-agent.bat
 ลงทะเบียน Task Scheduler สำหรับ user ปัจจุบัน:
 
 ```powershell
-.\install-desktop-helper-task.bat
+.\install\desktop-helper\setup\install-desktop-helper-task.bat
 ```
 
 Task จะตั้งเป็น `At log on` และ `Run only when user is logged on` เพื่อให้ Helper
@@ -75,7 +75,7 @@ Task จะตั้งเป็น `At log on` และ `Run only when user is
 ยกเลิก task:
 
 ```powershell
-.\uninstall-desktop-helper-task.bat
+.\install\desktop-helper\uninstall\uninstall-desktop-helper-task.bat
 ```
 
 ## การส่งภาพ

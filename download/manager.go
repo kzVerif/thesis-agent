@@ -243,8 +243,11 @@ func (m *Manager) validate(c Command) error {
 	if _, err := hex.DecodeString(c.SHA256); err != nil {
 		return &JobError{Code: InvalidCommand, Message: "sha256 is not hexadecimal"}
 	}
-	if c.Filename == "" || filepath.Base(c.Filename) != c.Filename || c.Filename == "." || c.Filename == ".." || strings.ContainsAny(c.Filename, "/\\") {
+	if !validFilename(c.Filename) {
 		return &JobError{Code: InvalidCommand, Message: "filename must be a plain file name"}
+	}
+	if _, err := m.destinationDirectory(c.DestinationPath); err != nil {
+		return err
 	}
 	u, err := url.Parse(c.DownloadURL)
 	if err != nil || u.Host == "" || u.User != nil || u.Fragment != "" {
@@ -265,13 +268,18 @@ func isLoopbackHost(host string) bool {
 }
 
 func (m *Manager) run(ctx context.Context, c Command) {
+	directory, err := m.prepareDestination(c)
+	if err != nil {
+		m.fail(c, err)
+		return
+	}
 	if m.cfg.Boundary != nil {
-		if err := m.cfg.Boundary.WithFiles([]string{filepath.Join(m.cfg.Directory, c.Filename)}, func() error { return nil }); err != nil {
+		if err := m.cfg.Boundary.WithFiles([]string{filepath.Join(directory, c.Filename)}, func() error { return nil }); err != nil {
 			m.fail(c, &JobError{Code: DiskWriteFailed, Message: "download destination failed security validation", Err: err})
 			return
 		}
 	}
-	space, err := m.cfg.SpaceChecker(m.cfg.Directory)
+	space, err := m.cfg.SpaceChecker(directory)
 	if err != nil {
 		m.fail(c, &JobError{Code: InternalError, Message: "could not check available disk space", Err: err})
 		return
@@ -280,8 +288,8 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		m.fail(c, &JobError{Code: InsufficientDiskSpace, Message: "insufficient disk space"})
 		return
 	}
-	dest := filepath.Join(m.cfg.Directory, c.Filename)
-	rel, err := filepath.Rel(m.cfg.Directory, dest)
+	dest := filepath.Join(directory, c.Filename)
+	rel, err := filepath.Rel(directory, dest)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
 		m.fail(c, &JobError{Code: InvalidCommand, Message: "destination escapes download directory"})
 		return
@@ -314,7 +322,13 @@ func (m *Manager) run(ctx context.Context, c Command) {
 	if m.cfg.Boundary != nil {
 		create = m.cfg.Boundary.CreateTemp
 	}
-	f, err := create(m.cfg.Directory, "."+c.Filename+"-*.part")
+	if c.DestinationPath != "" {
+		if err := checkDestinationLinks(directory); err != nil {
+			m.fail(c, err)
+			return
+		}
+	}
+	f, err := create(directory, "."+c.Filename+"-*.part")
 	if err != nil {
 		m.fail(c, &JobError{Code: DiskWriteFailed, Message: "could not create temporary file", Err: err})
 		return
@@ -326,6 +340,9 @@ func (m *Manager) run(ctx context.Context, c Command) {
 	closeErr := f.Close()
 	if copyErr != nil {
 		code := DownloadFailed
+		if w.writeErr != nil {
+			code = DiskWriteFailed
+		}
 		if ctx.Err() != nil {
 			code = Cancelled
 		}
@@ -361,6 +378,12 @@ func (m *Manager) run(ctx context.Context, c Command) {
 	if ctx.Err() != nil {
 		m.failAt(c, &JobError{Code: Cancelled, Message: "download cancelled"}, n)
 		return
+	}
+	if c.DestinationPath != "" {
+		if err := checkDestinationLinks(directory); err != nil {
+			m.failAt(c, err, n)
+			return
+		}
 	}
 	if err := m.publish(part, dest); err != nil {
 		_ = m.removePart(part)
@@ -442,6 +465,7 @@ func (r contextReader) Read(p []byte) (int, error) {
 
 type progressWriter struct {
 	writer   io.Writer
+	writeErr error
 	total    int64
 	written  int64
 	last     time.Time
@@ -451,6 +475,7 @@ type progressWriter struct {
 
 func (p *progressWriter) Write(b []byte) (int, error) {
 	n, err := p.writer.Write(b)
+	p.writeErr = err
 	p.written += int64(n)
 	now := time.Now()
 	if now.Sub(p.last) >= p.interval {
