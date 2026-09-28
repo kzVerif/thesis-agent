@@ -2,7 +2,7 @@
 <#
 Development/admin tooling only. Run with Windows PowerShell 5.1 as Administrator.
 All names and paths come from the built Agent's --service-info metadata.
-Removal unregisters the Service and preserves binaries, identity, logs and config.
+Removal unregisters the Service and deletes installed binaries and runtime data.
 #>
 [CmdletBinding()]
 param(
@@ -16,6 +16,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'cleanup.ps1')
 $principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
 if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
     throw 'Run this development Service tool from an elevated Administrator terminal.'
@@ -216,11 +217,26 @@ switch ($Action) {
         Wait-ServiceState 'Running'
     }
     'Remove' {
+        if ($serviceName -cne 'ThesisAgentDev') { throw 'Refusing to uninstall an unknown Service.' }
+        $programParent = [Environment]::GetFolderPath('ProgramFiles')
+        $dataParent = [Environment]::GetFolderPath('CommonApplicationData')
+        Assert-CleanupTree $installRoot $programParent 'ThesisAgentDev'
+        Assert-CleanupTree $runtimeRoot $dataParent 'ThesisAgentDev'
         Stop-OwnedService
         if ($null -ne $existing) {
             & "$env:SystemRoot\System32\sc.exe" delete $serviceName
             if ($LASTEXITCODE -ne 0) { throw 'Unable to remove development Service registration.' }
         }
-        Write-Output 'Service registration removed. Binaries, config, identity, enrollment state, logs and Event Log source are retained for repair/reinstall.'
+        $deadline = [DateTime]::UtcNow.AddSeconds(30)
+        while ($null -ne (Get-OwnedService)) {
+            if ([DateTime]::UtcNow -ge $deadline) { throw 'Service is still pending deletion. Close Services consoles and retry uninstall.' }
+            Start-Sleep -Milliseconds 250
+        }
+        Remove-InstalledTree $runtimeRoot $dataParent 'ThesisAgentDev'
+        Remove-InstalledTree $installRoot $programParent 'ThesisAgentDev'
+        if ([Diagnostics.EventLog]::SourceExists($serviceName)) {
+            Remove-EventLog -Source $serviceName -ErrorAction Stop
+        }
+        Write-Output 'Agent removed: Service, installed binaries, config, identity, enrollment state, logs, downloads and Event Log source.'
     }
 }

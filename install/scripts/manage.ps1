@@ -9,6 +9,7 @@ param(
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'cleanup.ps1')
 $packageRoot = Split-Path -Parent $PSScriptRoot
 $agentExe = Join-Path $packageRoot 'build\agent\thesis-agent.exe'
 $helperExe = Join-Path $packageRoot 'build\desktop-helper\thesis-agent-desktop.exe'
@@ -49,7 +50,7 @@ function Stop-Helper {
     foreach ($process in Get-Process -Name 'thesis-agent-desktop' -ErrorAction SilentlyContinue) {
         if ($process.SessionId -eq $session) {
             Stop-Process -Id $process.Id -ErrorAction Stop
-            $process.WaitForExit(10000) | Out-Null
+            if (-not $process.WaitForExit(10000)) { throw 'Desktop Helper did not exit; cleanup was stopped.' }
         }
     }
 }
@@ -99,10 +100,13 @@ try {
             }
             'HelperStop' { Stop-Helper; Write-Host 'Desktop Helper stopped for this session.' }
             'HelperRemove' {
+                $localParent = [Environment]::GetFolderPath('LocalApplicationData')
+                Assert-CleanupTree $helperRoot $localParent 'ThesisAgentDesktop'
                 Stop-Helper
                 $task = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
                 if ($null -ne $task) { Unregister-ScheduledTask -InputObject $task -Confirm:$false }
-                Write-Host 'Desktop Helper logon task removed. Local binaries are retained.'
+                Remove-InstalledTree $helperRoot $localParent 'ThesisAgentDesktop'
+                Write-Host 'Desktop Helper logon task and installed files removed for the current user.'
             }
         }
         exit 0

@@ -216,8 +216,10 @@ Install คงพฤติกรรมเตรียมติดตั้งเ
 .\install\scripts\dev-service.ps1 -Action Remove
 ```
 
-Remove หยุดและถอนทะเบียนเฉพาะ Service นี้ ตั้งใจเก็บไฟล์โปรแกรม ข้อมูลรันไทม์ กุญแจ ล็อก
-และแหล่ง Event Log ไว้เพื่อซ่อม/ติดตั้งใหม่ ไม่ลบข้อมูลแบบเวียนซ้ำหรือทำความสะอาดประวัติ repository
+Remove หยุดและถอนทะเบียน Service แล้วลบโฟลเดอร์ติดตั้งและข้อมูลรันไทม์ของ ThesisAgentDev
+รวม .env, identity, enrollment state, logs, downloads และแหล่ง Event Log โดยตรวจขอบเขตพาธและปฏิเสธ symlink/junction ก่อนลบ
+ใช้ `uninstall-agent.bat` ที่ root เพื่อถอน Desktop Helper ของผู้ใช้ด้วย การติดตั้งใหม่หลังถอนต้องลงทะเบียน identity ใหม่
+ไฟล์ source/ชุดติดตั้งและข้อมูลบน server ยังคงอยู่ ใช้ Update เมื่อต้องการเก็บ identity/config เดิม
 
 <a id="windows-permissions-and-service-account"></a>
 

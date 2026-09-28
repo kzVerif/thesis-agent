@@ -1,6 +1,7 @@
 @echo off
 setlocal EnableExtensions DisableDelayedExpansion
 rem Paths are relative to this BAT. No manual editing is required.
+rem Removes Service and installed config, identity, enrollment, logs and downloads.
 set "TOOL=%~dp0..\..\scripts\manage.ps1"
 if not exist "%TOOL%" (
     echo ERROR: Package is incomplete. Copy the entire install folder.
