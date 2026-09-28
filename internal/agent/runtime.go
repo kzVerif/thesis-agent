@@ -140,6 +140,14 @@ func runWithSecurity(ctx context.Context, options Options, paths apppaths.Paths,
 		return err
 	}
 	log.Printf("transport mode: %s", mode)
+	downloadDir := resolve(paths.Root, os.Getenv("DOWNLOAD_DIRECTORY"), paths.Downloads)
+	downloadRoots := cfg.DownloadAllowedRoots
+	if machine || len(downloadRoots) > 0 {
+		downloadRoots, err = download.ValidateRoots(downloadDir, downloadRoots, paths.Root, paths.Install)
+		if err != nil {
+			return fmt.Errorf("download configuration: %w", err)
+		}
+	}
 	if options.MigrationSource != "" {
 		if !options.Provision {
 			return fmt.Errorf("identity migration is only available during administrative provisioning")
@@ -198,11 +206,7 @@ func runWithSecurity(ctx context.Context, options Options, paths apppaths.Paths,
 	}
 	wsClient.ConfigurePower(power)
 	log.Printf("power controller mode: %s", power.Mode())
-	downloadDir := resolve(paths.Root, os.Getenv("DOWNLOAD_DIRECTORY"), paths.Downloads)
-	if machine && (!within(filepath.Join(paths.Root, "data"), downloadDir) || filepath.Clean(downloadDir) == filepath.Join(paths.Root, "data")) {
-		return fmt.Errorf("Service downloads must be in a subdirectory of protected runtime data")
-	}
-	if err := wsClient.ConfigureDownloads(download.Config{Directory: downloadDir, MaxConcurrent: cfg.MaxConcurrentDownloads, QueueSize: cfg.DownloadQueueSize, MaxFileSize: cfg.MaxDownloadSize, AllowHTTP: cfg.AllowLocalHTTPDownloads, Boundary: boundary}, identity.AgentID); err != nil {
+	if err := wsClient.ConfigureDownloads(download.Config{Directory: downloadDir, AllowedRoots: downloadRoots, MaxConcurrent: cfg.MaxConcurrentDownloads, QueueSize: cfg.DownloadQueueSize, MaxFileSize: cfg.MaxDownloadSize, AllowHTTP: cfg.AllowLocalHTTPDownloads, Boundary: boundary}, identity.AgentID); err != nil {
 		return err
 	}
 	if ready != nil {

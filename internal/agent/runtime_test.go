@@ -43,6 +43,7 @@ func runtimeFixture(t *testing.T) (apppaths.Paths, []byte) {
 	}
 	t.Setenv("AGENT_LOG_PATH", "")
 	t.Setenv("DOWNLOAD_DIRECTORY", "")
+	t.Setenv("DOWNLOAD_ALLOWED_ROOTS", "")
 	t.Setenv("POWER_MODE", "mock")
 	return paths, b
 }

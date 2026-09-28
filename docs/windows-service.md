@@ -67,15 +67,28 @@ internal/agent ดูแลรันไทม์ร่วมเพียงช�
 Console ใช้ไดเรกทอรีทำงานสำหรับ .env ข้อมูลประจำตัว ล็อก และ data/downloads ตามรูปแบบเดิม
 Service/การเตรียมติดตั้งไม่โหลด .env จากไดเรกทอรีทำงานของ SCM
 หากกำหนดพาธล็อก/ดาวน์โหลดของ Service แบบสัมพัทธ์ จะอ้างจากรากรันไทม์ของเครื่อง
-ล็อกต้องอยู่ใต้ logs/ และดาวน์โหลดต้องอยู่ในไดเรกทอรีย่อยของ data/
-เพื่อป้องกันปลายทางดาวน์โหลด/ล็อกเขียนทับข้อมูลประจำตัวหรือการตั้งค่าสำคัญ
+ล็อกต้องอยู่ใต้ logs/ ส่วนดาวน์โหลดรองรับโฟลเดอร์ภายนอกผ่าน `DOWNLOAD_DIRECTORY`
+และ `DOWNLOAD_ALLOWED_ROOTS` (พาธเต็มคั่นด้วย `;`) เช่น:
+
+```env
+DOWNLOAD_DIRECTORY=D:\Downloads
+DOWNLOAD_ALLOWED_ROOTS=D:\Downloads;D:\Lessons;C:\Shared
+```
+
+เมื่อไม่กำหนด allowlist จะอนุญาตเฉพาะโฟลเดอร์เริ่มต้นและโฟลเดอร์ย่อย ถ้ากำหนด allowlist
+โฟลเดอร์เริ่มต้นต้องอยู่ภายในรายการนั้น และ `destination_path` จาก WebSocket เลือกได้ภายใน root ใดก็ได้ในรายการ
+ห้ามใช้ทั้งไดรฟ์ โฟลเดอร์โปรแกรม Agent หรือพื้นที่ identity/config เป็น root
+หากปลายทางอยู่ใน runtime จะยังจำกัดไว้ใต้ไดเรกทอรีย่อยของ data/ พร้อมตรวจ ACL เดิม
+โฟลเดอร์ภายนอกใช้สิทธิ์ NTFS เดิม โดยบัญชี Service ต้องเขียนได้ และยังปฏิเสธ symlink/junction/hard link
+แก้ config ของเครื่องที่ติดตั้งแล้วใน `%ProgramData%\ThesisAgentDev\.env` แล้วรีสตาร์ต Service
+สำหรับเครื่องใหม่ให้แก้ `install/config/service.env` ก่อนติดตั้ง; Update เก็บ config เดิมไว้
 
 ลำดับความสำคัญ: ตัวแปรสภาพแวดล้อมของโปรเซส (SCM รับจากสภาพแวดล้อมระบบ) >
 .env ที่เลือก > ค่าเริ่มต้นเดิม การเตรียมติดตั้งโดยผู้ดูแลกับ SCM อาจรับสภาพแวดล้อมต่างกัน
 จึงควรใช้ .env ที่บันทึกถาวรและตรวจตัวแปรระบบที่ขัดกัน
 การเปลี่ยนสภาพแวดล้อมของ Service อาจต้องเริ่ม Windows ใหม่
 
-คงการตั้งค่า WS_SERVER_URL, AGENT_API_URL, AGENT_LOG_PATH, DOWNLOAD_DIRECTORY,
+คงการตั้งค่า WS_SERVER_URL, AGENT_API_URL, AGENT_LOG_PATH, DOWNLOAD_DIRECTORY, DOWNLOAD_ALLOWED_ROOTS,
 MAX_CONCURRENT_DOWNLOADS, DOWNLOAD_QUEUE_SIZE, MAX_DOWNLOAD_SIZE_BYTES,
 ALLOW_LOCAL_HTTP_DOWNLOADS และ POWER_MODE
 คำสั่งพลังงานมีค่าเริ่มต้นเป็นการปิดเครื่องจริงตามเดิม ให้ใช้ POWER_MODE=mock บนเครื่องพัฒนา

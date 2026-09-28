@@ -21,6 +21,7 @@ type Config struct {
 	PerformanceInterval     time.Duration
 	PingTimeout             time.Duration
 	DownloadDirectory       string
+	DownloadAllowedRoots    []string
 	MaxConcurrentDownloads  int
 	DownloadQueueSize       int
 	MaxDownloadSize         int64
@@ -76,11 +77,23 @@ func fromEnvironment() Config {
 		PerformanceInterval:     5 * time.Second,
 		PingTimeout:             5 * time.Second,
 		DownloadDirectory:       downloadDir,
+		DownloadAllowedRoots:    parseDownloadRoots(os.Getenv("DOWNLOAD_ALLOWED_ROOTS")),
 		MaxConcurrentDownloads:  concurrency,
 		DownloadQueueSize:       queueSize,
 		MaxDownloadSize:         maxSize,
 		AllowLocalHTTPDownloads: parseBool(os.Getenv("ALLOW_LOCAL_HTTP_DOWNLOADS")),
 	}
+}
+
+func parseDownloadRoots(value string) []string {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	roots := strings.Split(value, ";")
+	for i := range roots {
+		roots[i] = strings.TrimSpace(roots[i])
+	}
+	return roots
 }
 
 func parseBool(value string) bool {

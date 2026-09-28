@@ -135,7 +135,7 @@ type pinnedObject struct {
 
 func (o *pinnedObject) handle() windows.Handle { return windows.Handle(o.file.Fd()) }
 
-func (o *pinnedObject) inspect() assessment {
+func (o *pinnedObject) inspectStructure() assessment {
 	var info windows.ByHandleFileInformation
 	if windows.GetFileInformationByHandle(o.handle(), &info) != nil {
 		return unsafeAssessment("security_descriptor_unreadable")
@@ -152,6 +152,13 @@ func (o *pinnedObject) inspect() assessment {
 	name, err := finalPath(o.handle())
 	if err != nil || !strings.EqualFold(name, o.path) {
 		return unsafeAssessment("path_escape")
+	}
+	return assessment{class: canonical}
+}
+
+func (o *pinnedObject) inspect() assessment {
+	if a := o.inspectStructure(); a.class != canonical {
+		return a
 	}
 	sd, err := windows.GetSecurityInfo(o.handle(), windows.SE_FILE_OBJECT, windows.OWNER_SECURITY_INFORMATION|windows.DACL_SECURITY_INFORMATION)
 	if err != nil {

@@ -32,7 +32,12 @@ func (b *Boundary) inside(path string) error {
 }
 
 func (b *Boundary) validate(o *pinnedObject) error {
-	a := o.inspect()
+	var a assessment
+	if b.sharedDownloads {
+		a = o.inspectStructure()
+	} else {
+		a = o.inspect()
+	}
 	if a.class != canonical {
 		report(scopedReporter(b.Report, "on_access"), o.path, a, "fail_closed")
 		return securityError(o.path, a.reasons[0])
@@ -51,6 +56,9 @@ func closePins(pins []*os.File) {
 func (b *Boundary) pinDirectories(directory string, create bool) (pins []*os.File, result error) {
 	if err := b.inside(directory); err != nil {
 		return nil, err
+	}
+	if b.sharedDownloads {
+		return b.pinDownloadDirectories(directory, create)
 	}
 	ancestors, err := pinAncestors(b.Root)
 	if err != nil {
@@ -93,6 +101,51 @@ func (b *Boundary) pinDirectories(directory string, create bool) (pins []*os.Fil
 		}
 	}
 	return pins, nil
+}
+
+// Hold every ancestor without DELETE sharing, including ancestors of the
+// allowed root. Missing directories are created under already pinned parents.
+func (b *Boundary) pinDownloadDirectories(directory string, create bool) (pins []*os.File, result error) {
+	defer func() {
+		if result != nil {
+			closePins(pins)
+			pins = nil
+		}
+	}()
+	var paths []string
+	for p := directory; ; p = filepath.Dir(p) {
+		paths = append(paths, p)
+		if filepath.Dir(p) == p {
+			break
+		}
+	}
+	for i := len(paths) - 1; i >= 0; i-- {
+		path := paths[i]
+		f, err := openPinned(path, windows.FILE_READ_ATTRIBUTES, windows.OPEN_EXISTING, nil)
+		if create && (errors.Is(err, windows.ERROR_FILE_NOT_FOUND) || errors.Is(err, windows.ERROR_PATH_NOT_FOUND)) {
+			if err = os.Mkdir(path, 0700); err != nil && !os.IsExist(err) {
+				return pins, err
+			}
+			f, err = openPinned(path, windows.FILE_READ_ATTRIBUTES, windows.OPEN_EXISTING, nil)
+		}
+		if err != nil {
+			return pins, err
+		}
+		pins = append(pins, f)
+		if err := b.validate(&pinnedObject{file: f, path: path, directory: true}); err != nil {
+			return pins, err
+		}
+	}
+	return pins, nil
+}
+
+// HoldDirectory prevents directory replacement for the lifetime of a download.
+func (b *Boundary) HoldDirectory(path string) (func(), error) {
+	pins, err := b.pinDirectories(path, false)
+	if err != nil {
+		return nil, err
+	}
+	return func() { closePins(pins) }, nil
 }
 
 func (b *Boundary) EnsureDirectory(path string) error {

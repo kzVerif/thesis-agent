@@ -3,8 +3,20 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
+
+func TestDownloadRootsEnvironment(t *testing.T) {
+	t.Setenv("DOWNLOAD_ALLOWED_ROOTS", ` D:\Downloads ; C:\Shared Files `)
+	if got := fromEnvironment().DownloadAllowedRoots; !reflect.DeepEqual(got, []string{`D:\Downloads`, `C:\Shared Files`}) {
+		t.Fatalf("roots: %q", got)
+	}
+	t.Setenv("DOWNLOAD_ALLOWED_ROOTS", "")
+	if got := fromEnvironment().DownloadAllowedRoots; len(got) != 0 {
+		t.Fatalf("empty roots: %q", got)
+	}
+}
 
 func TestLoadDotEnvDoesNotOverrideProcessEnvironment(t *testing.T) {
 	t.Setenv("WS_AGENT_DOTENV_TEST", "from-process")

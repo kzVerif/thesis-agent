@@ -26,6 +26,7 @@ type Sender func(any) error
 type SpaceChecker func(string) (uint64, error)
 type Config struct {
 	Directory        string
+	AllowedRoots     []string
 	MaxConcurrent    int
 	QueueSize        int
 	MaxFileSize      int64
@@ -99,14 +100,20 @@ func NewManager(cfg Config, agentID string, send Sender) (*Manager, error) {
 		return nil, err
 	}
 	cfg.Directory = abs
-	mkdir := func(p string) error { return os.MkdirAll(p, 0700) }
-	if cfg.Boundary != nil {
-		mkdir = cfg.Boundary.EnsureDirectory
-	}
-	if err := mkdir(abs); err != nil {
-		return nil, err
+	if len(cfg.AllowedRoots) > 0 {
+		runtimeRoot := ""
+		if cfg.Boundary != nil {
+			runtimeRoot = cfg.Boundary.Root
+		}
+		cfg.AllowedRoots, err = ValidateRoots(abs, cfg.AllowedRoots, runtimeRoot, "")
+		if err != nil {
+			return nil, err
+		}
 	}
 	m := &Manager{cfg: cfg, agentID: agentID, send: send, jobs: make(chan queuedJob, cfg.QueueSize), active: make(map[string]string), completed: make(map[string]Result)}
+	if _, err := m.prepareDestination(Command{}); err != nil {
+		return nil, err
+	}
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	for i := 0; i < cfg.MaxConcurrent; i++ {
 		m.wg.Add(1)
@@ -273,8 +280,15 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		m.fail(c, err)
 		return
 	}
-	if m.cfg.Boundary != nil {
-		if err := m.cfg.Boundary.WithFiles([]string{filepath.Join(directory, c.Filename)}, func() error { return nil }); err != nil {
+	boundary := m.boundaryFor(directory)
+	if boundary != nil {
+		release, err := boundary.HoldDirectory(directory)
+		if err != nil {
+			m.fail(c, &JobError{Code: DiskWriteFailed, Message: "could not secure destination directory", Err: err})
+			return
+		}
+		defer release()
+		if err := boundary.WithFiles([]string{filepath.Join(directory, c.Filename)}, func() error { return nil }); err != nil {
 			m.fail(c, &JobError{Code: DiskWriteFailed, Message: "download destination failed security validation", Err: err})
 			return
 		}
@@ -294,6 +308,22 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		m.fail(c, &JobError{Code: InvalidCommand, Message: "destination escapes download directory"})
 		return
 	}
+	// Exclusive temporary creation checks write access before contacting the URL.
+	create := os.CreateTemp
+	if boundary != nil {
+		create = boundary.CreateTemp
+	}
+	if err := checkDestinationLinks(directory); err != nil {
+		m.fail(c, err)
+		return
+	}
+	f, err := create(directory, "."+c.Filename+"-*.part")
+	if err != nil {
+		m.fail(c, &JobError{Code: DiskWriteFailed, Message: "could not create temporary file", Err: err})
+		return
+	}
+	part := f.Name()
+	defer func() { _ = f.Close(); _ = m.removePart(part) }()
 	m.setStatus(c, "DOWNLOADING")
 	log.Printf("download started job_id=%s file_id=%s filename=%q agent_id=%s", c.JobID, c.FileID, c.Filename, m.agentID)
 	resp, err := m.doRequest(ctx, c)
@@ -318,23 +348,6 @@ func (m *Manager) run(ctx context.Context, c Command) {
 		m.fail(c, &JobError{Code: SizeMismatch, Message: "Content-Length does not match expected size"})
 		return
 	}
-	create := os.CreateTemp
-	if m.cfg.Boundary != nil {
-		create = m.cfg.Boundary.CreateTemp
-	}
-	if c.DestinationPath != "" {
-		if err := checkDestinationLinks(directory); err != nil {
-			m.fail(c, err)
-			return
-		}
-	}
-	f, err := create(directory, "."+c.Filename+"-*.part")
-	if err != nil {
-		m.fail(c, &JobError{Code: DiskWriteFailed, Message: "could not create temporary file", Err: err})
-		return
-	}
-	part := f.Name()
-	defer m.removePart(part)
 	w := &progressWriter{writer: f, total: c.Size, interval: m.cfg.ProgressInterval, report: func(n int64, p int) { _ = m.send(Progress{"FILE_DOWNLOAD_PROGRESS", c.JobID, m.agentID, n, c.Size, p}) }}
 	n, copyErr := io.Copy(w, resp.Body)
 	closeErr := f.Close()

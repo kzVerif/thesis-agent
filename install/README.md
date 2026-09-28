@@ -64,6 +64,7 @@ Agent ทำงานเป็น Windows Service และเริ่มเม
 ตัวถอน Agent ลบ Service, Event Log source, `%ProgramFiles%\ThesisAgentDev` และ `%ProgramData%\ThesisAgentDev` ทั้งหมด รวม `.env`, identity, enrollment state, logs และ downloads การติดตั้งครั้งถัดไปต้องลงทะเบียน identity ใหม่
 ตัวถอน Helper ลบ task และ `%LOCALAPPDATA%\ThesisAgentDesktop` ของผู้ใช้ที่เปิด BAT หากใช้ BAT ในโฟลเดอร์ `install` จะถอนเฉพาะส่วนนั้น
 เก็บชุดติดตั้งและไฟล์ใน source repository ไว้ รวมถึง `install/config/service.env` และ `.env` ของ Console ข้อมูลบน server และ Helper ของผู้ใช้บัญชีอื่นไม่ถูกลบ
+โฟลเดอร์ดาวน์โหลดภายนอกที่ตั้งผ่าน `DOWNLOAD_DIRECTORY` หรือ `DOWNLOAD_ALLOWED_ROOTS` และไฟล์ในนั้นจะไม่ถูกลบตอนถอน Agent
 การถอนตรวจขอบเขตโฟลเดอร์และปฏิเสธ symlink/junction หากลบไม่สำเร็จจะแสดงข้อผิดพลาดและคืน exit code ที่ไม่ใช่ศูนย์ สามารถรันซ้ำเพื่อลบส่วนที่เหลือได้
 การอัปเดต helper มีผลกับบัญชีผู้ใช้ที่เปิด BAT; เครื่องที่มีหลายบัญชีต้องติดตั้ง helper ในแต่ละบัญชีตามนโยบายเครื่อง
 

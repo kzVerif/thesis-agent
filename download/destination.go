@@ -21,8 +21,28 @@ func invalidDestination() error {
 
 func (m *Manager) destinationDirectory(path string) (string, error) {
 	if path == "" {
-		return m.cfg.Directory, nil
+		path = m.cfg.Directory
 	}
+	path, err := cleanDestination(path)
+	if err != nil {
+		return "", err
+	}
+	roots := m.cfg.AllowedRoots
+	if len(roots) == 0 && m.cfg.Boundary != nil {
+		roots = []string{m.cfg.Directory}
+	}
+	if len(roots) > 0 {
+		for _, root := range roots {
+			if containsPath(root, path) {
+				return path, nil
+			}
+		}
+		return "", invalidDestination()
+	}
+	return path, nil
+}
+
+func cleanDestination(path string) (string, error) {
 	if !filepath.IsAbs(path) || strings.HasPrefix(path, `\`) || strings.HasPrefix(path, "//") || strings.ContainsFunc(path, unicode.IsControl) {
 		return "", invalidDestination()
 	}
@@ -41,16 +61,12 @@ func (m *Manager) destinationDirectory(path string) (string, error) {
 			return "", invalidDestination()
 		}
 	}
-	path = filepath.Clean(path)
-	// Service downloads must stay in the configured download tree, never in
-	// sibling runtime directories containing identity or application state.
-	if m.cfg.Boundary != nil {
-		rel, err := filepath.Rel(m.cfg.Directory, path)
-		if err != nil || (rel != "." && !filepath.IsLocal(rel)) {
-			return "", invalidDestination()
-		}
-	}
-	return path, nil
+	return filepath.Clean(path), nil
+}
+
+func containsPath(root, path string) bool {
+	rel, err := filepath.Rel(root, path)
+	return err == nil && (rel == "." || filepath.IsLocal(rel))
 }
 
 // Reject existing links in every ancestor, including Windows junctions. Missing
@@ -72,15 +88,15 @@ func checkDestinationLinks(path string) error {
 
 func (m *Manager) prepareDestination(c Command) (string, error) {
 	directory, err := m.destinationDirectory(c.DestinationPath)
-	if err != nil || c.DestinationPath == "" {
+	if err != nil {
 		return directory, err
 	}
 	if err := checkDestinationLinks(directory); err != nil {
 		return "", err
 	}
 	mkdir := func(path string) error { return os.MkdirAll(path, 0700) }
-	if m.cfg.Boundary != nil {
-		mkdir = m.cfg.Boundary.EnsureDirectory
+	if boundary := m.boundaryFor(directory); boundary != nil {
+		mkdir = boundary.EnsureDirectory
 	}
 	if err := mkdir(directory); err != nil {
 		return "", &JobError{Code: DiskWriteFailed, Message: "could not create destination directory", Err: err}

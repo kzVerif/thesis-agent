@@ -35,6 +35,12 @@ Agent -- FILE_DOWNLOAD_RESULT --> WebSocket Server
 
 ## เลือกโฟลเดอร์ปลายทาง
 
+Service รองรับหลาย root ผ่าน config เช่น `DOWNLOAD_DIRECTORY=D:\Downloads` และ
+`DOWNLOAD_ALLOWED_ROOTS=D:\Downloads;D:\Lessons;C:\Shared` โดย allowlist ต้องใช้พาธเต็ม
+และโฟลเดอร์เริ่มต้นต้องอยู่ในรายการนั้น ถ้าไม่กำหนดรายการจะอนุญาตเฉพาะโฟลเดอร์เริ่มต้นและโฟลเดอร์ย่อย
+คำสั่งสามารถส่ง `destination_path` เป็น `D:\Lessons\Room101` ได้ หากอยู่ใน allowlist
+โฟลเดอร์ภายนอกใช้สิทธิ์ NTFS เดิมของเครื่อง; ข้อมูล identity/config ยังอยู่ใน runtime ที่ป้องกันไว้
+
 `destination_path` เป็น optional absolute local directory บนเครื่อง Agent ไม่รวมชื่อไฟล์ หากไม่มีฟิลด์นี้หรือเป็น `""` ให้ใช้โฟลเดอร์เริ่มต้นเดิม หากระบุ ให้ใช้โฟลเดอร์นั้นและต่อกับ `filename` เช่น `D:\Shared Files\Lessons\example.zip` ห้าม fallback ไปโฟลเดอร์อื่นเงียบ ๆ เมื่อ path ใช้งานไม่ได้
 
 Server รองรับรูปแบบ Windows drive path และ POSIX path โดยไม่อิง OS ของ Server และปฏิเสธ relative path, UNC/device path, control characters และส่วน `.` / `..` แต่ Agent ยังต้องตรวจว่าเป็น absolute path ที่ตรงกับ OS ของตัวเอง ตรวจสิทธิ์และ policy การเขียนไฟล์ รวมถึง symlink/junction ที่อาจพาออกจากโฟลเดอร์ที่อนุญาต ตรวจ `filename` ให้เป็นชื่อไฟล์เดี่ยว ไม่มี separators หรือ traversal ก่อนนำมาต่อ path ไม่ขยาย environment variables หรือเรียก shell เพื่อแปล path

@@ -7,6 +7,10 @@ import (
 	"os"
 )
 
+func (b *Boundary) HoldDirectory(string) (func(), error) {
+	return nil, fmt.Errorf("protected dynamic I/O requires Windows")
+}
+
 func (b *Boundary) EnsureDirectory(string) error {
 	return fmt.Errorf("protected dynamic I/O requires Windows")
 }
