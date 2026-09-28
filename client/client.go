@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket"
 	"ws-agent/antivirus"
 	"ws-agent/download"
+	"ws-agent/installedapps"
 	"ws-agent/internal/retry"
 	"ws-agent/internal/transportpolicy"
 )
@@ -231,6 +232,11 @@ func (c *Client) runConnection(
 	processCommands := make(chan bool, 1)
 	screenStreamer := NewScreenStreamer(screenCapture)
 	defer func() { cancel(); _ = rawConn.CloseNow(); screenStreamer.Stop(); workers.Wait() }()
+	appsWorker := newInstalledAppsWorker()
+	start(func() { appsWorker.collect(runCtx, installedapps.Collect) })
+	start(func() {
+		appsWorker.write(runCtx, func(ctx context.Context, result any) error { return writeJSON(ctx, conn, result) })
+	})
 	start(func() { c.heartbeat(runCtx, conn) })
 	if performanceProvider != nil {
 		start(func() { c.publishPerformance(runCtx, conn, performanceProvider, performanceCommands) })
@@ -239,6 +245,10 @@ func (c *Client) runConnection(
 		start(func() { c.publishProcess(runCtx, conn, processProvider, processCommands) })
 	}
 	if err := readJSONMessages(runCtx, conn, func(data []byte) {
+		if command, ok := parseInstalledAppsCommand(data); ok {
+			appsWorker.submit(command)
+			return
+		}
 		if c.handleVirusScan(ctx, data) {
 			return
 		}
